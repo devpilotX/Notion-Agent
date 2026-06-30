@@ -264,5 +264,4 @@ cd server && npm run build   # engine
 
 ## License
 
-No license is set yet. Add one of your choice before sharing the repository
-publicly.
+Released under the MIT License. See [LICENSE](LICENSE).
