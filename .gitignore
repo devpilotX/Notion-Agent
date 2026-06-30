@@ -1,0 +1,40 @@
+# ---- dependencies ----
+/node_modules
+**/node_modules
+/.pnp
+.pnp.js
+
+# ---- next.js ----
+/.next/
+/out/
+
+# ---- build output ----
+/build
+/dist
+**/dist
+
+# ---- logs (may contain request data or secrets) ----
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+engine.log
+engine.err.log
+server/engine.log
+server/engine.err.log
+
+# ---- environment & secrets (never commit real values) ----
+.env
+.env.*
+!.env.example
+/server/.env
+/server/.env.*
+
+# ---- local editor / agent tooling (holds local MCP tokens) ----
+.kiro/
+
+# ---- typescript / misc ----
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+*.pem

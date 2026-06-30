@@ -1,0 +1,64 @@
+# One-command local stack for the AgentForge engine.
+# Postgres is NOT here on purpose: it uses your existing local instance.
+# Containers reach it via host.docker.internal (set DATABASE_URL host accordingly).
+#
+#   docker compose up        # redis + ollama + litellm + api
+#   npm run dev              # frontend, in the repo root, separately
+#
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    restart: unless-stopped
+    command: ["--config", "/app/config.yaml", "--port", "4001"]
+    ports:
+      - "4001:4001"
+    volumes:
+      - ./server/litellm.config.yaml:/app/config.yaml:ro
+
+  api:
+    build:
+      context: ./server
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      # Reach the host's Postgres from inside the container.
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379
+      LITELLM_BASE_URL: http://litellm:4001
+      OLLAMA_BASE_URL: http://ollama:11434
+      MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY}
+      AUTH_SECRET: ${AUTH_SECRET}
+      API_PORT: "4000"
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    extra_hosts:
+      # Lets DATABASE_URL use host.docker.internal on Linux too.
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "4000:4000"
+
+volumes:
+  redis-data:
+  ollama-data:

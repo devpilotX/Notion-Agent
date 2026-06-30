@@ -1,0 +1,12 @@
+# Minimal LiteLLM proxy config.
+# The engine forwards the user's decrypted key per request (BYOK), so no
+# provider keys are stored here. Model routing is refined in Phase 3.
+model_list: []
+
+litellm_settings:
+  drop_params: true
+  request_timeout: 600
+
+general_settings:
+  # The engine talks to LiteLLM over the local network only.
+  master_key: null

@@ -1,0 +1,302 @@
+@import "tailwindcss";
+
+/* Dark mode is class-driven (.dark on <html>) so we can crossfade it. */
+@custom-variant dark (&:is(.dark *));
+
+/* ============================================================
+   VERDANT TOKENS  (named identically to intended Figma variables)
+   color/*  spacing/*  radius/*  type/*  ease/*  elevation/*
+   ============================================================ */
+:root {
+  /* --- Palette: light (default) --- */
+  --mist: #f6f8f3; /* page canvas      */
+  --paper: #ffffff; /* cards, panels    */
+  --bark: #23291f; /* primary text     */
+  --stone: #5c6356; /* secondary text   */
+  --canopy: #1f6f43; /* primary brand    */
+  --fern: #3da35d; /* active / hover   */
+  --moss: #7e9b6a; /* muted accents    */
+  --sun: #e7b85c; /* warm highlight   */
+  --line: #e4eadd; /* soft borders     */
+
+  /* derived helpers */
+  --canopy-contrast: #f3faf4; /* text on canopy */
+  --danger: #c0533f; /* soft red       */
+  --danger-soft: #f6e3df;
+  --fern-ring: 61 163 93; /* rgb for focus ring alpha */
+  --canopy-rgb: 31 111 67;
+
+  /* elevation, soft and wide, low-opacity, green-tinted */
+  --elev-1: 0 1px 2px rgb(35 41 31 / 0.04), 0 10px 30px rgb(31 111 67 / 0.06);
+  --elev-2: 0 2px 4px rgb(35 41 31 / 0.05), 0 18px 48px rgb(31 111 67 / 0.1);
+  --grain-opacity: 0.035;
+}
+
+/* --- Palette: deep canopy (dark) --- */
+.dark {
+  --mist: #10160f;
+  --paper: #161e14;
+  --bark: #e8efe2;
+  --stone: #9aa890;
+  --canopy: #4fb477;
+  --fern: #5fc98a;
+  --moss: #8aa876;
+  --sun: #e0b25a;
+  --line: #25301f;
+
+  --canopy-contrast: #0c130b;
+  --danger: #e08977;
+  --danger-soft: #2e1f1b;
+  --fern-ring: 95 201 138;
+  --canopy-rgb: 79 180 119;
+
+  --elev-1: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 30px rgb(0 0 0 / 0.35);
+  --elev-2: 0 2px 4px rgb(0 0 0 / 0.45), 0 22px 54px rgb(0 0 0 / 0.45);
+  --grain-opacity: 0.05;
+}
+
+/* ============================================================
+   Map Verdant tokens -> Tailwind theme (inline = live, theme-aware)
+   Enables: bg-paper text-bark border-line bg-canopy shadow-soft …
+   ============================================================ */
+@theme inline {
+  /* Theme-aware: consumed ONLY via utilities (bg-*, text-*, border-*, shadow-*) */
+  --color-mist: var(--mist);
+  --color-paper: var(--paper);
+  --color-bark: var(--bark);
+  --color-stone: var(--stone);
+  --color-canopy: var(--canopy);
+  --color-canopy-contrast: var(--canopy-contrast);
+  --color-fern: var(--fern);
+  --color-moss: var(--moss);
+  --color-sun: var(--sun);
+  --color-line: var(--line);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+
+  --shadow-soft: var(--elev-1);
+  --shadow-lift: var(--elev-2);
+}
+
+/* Static tokens, emitted as :root variables (usable in raw CSS) + utilities */
+@theme {
+  /* Fonts (wired to next/font CSS variables) */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  --font-serif: var(--font-fraunces), ui-serif, "Iowan Old Style", Georgia,
+    serif;
+
+  /* Type scale: 12 / 14 / 16 / 20 / 28 / 40 */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.25rem;
+  --text-2xl: 1.75rem;
+  --text-4xl: 2.5rem;
+
+  /* Radius: steady small controls, organic large containers */
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-organic: 22px;
+
+  /* Easing */
+  --ease-organic: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-sway: cubic-bezier(0.37, 0, 0.63, 1);
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+@layer base {
+  * {
+    border-color: var(--line);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: var(--mist);
+    color: var(--bark);
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    /* Theme crossfade, no harsh flip */
+    transition:
+      background-color 480ms var(--ease-organic),
+      color 480ms var(--ease-organic);
+  }
+
+  /* Visible, fern-colored focus rings everywhere */
+  :focus-visible {
+    outline: 2px solid rgb(var(--fern-ring) / 0.9);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: rgb(var(--fern-ring) / 0.22);
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+}
+
+/* ============================================================
+   Texture + organic shapes (utility classes)
+   ============================================================ */
+
+/* Barely-there paper grain. Feel it, don't see it. */
+.paper-grain {
+  opacity: var(--grain-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+}
+
+/* Hand-shaped asymmetric radius for large containers */
+.radius-leaf {
+  border-radius: var(--radius-lg);
+  border-top-left-radius: var(--radius-organic);
+  border-bottom-right-radius: var(--radius-organic);
+}
+.radius-leaf-alt {
+  border-radius: var(--radius-lg);
+  border-top-right-radius: var(--radius-organic);
+  border-bottom-left-radius: var(--radius-organic);
+}
+
+/* Soft, slow-breathing canopy light. Cheap (transform/opacity only). */
+@keyframes canopy-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.08) translate3d(0, -1.5%, 0);
+  }
+}
+
+/* Gentle idle pulse for the status dot */
+@keyframes status-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(var(--fern-ring) / 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgb(var(--fern-ring) / 0);
+  }
+}
+
+/* Ink-soak fade for streaming text chunks */
+@keyframes ink-soak {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+.animate-status-pulse {
+  animation: status-pulse 2.8s var(--ease-sway) infinite;
+}
+
+/* Thin custom scrollbars that match the canopy */
+.verdant-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.verdant-scroll::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+.verdant-scroll::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.verdant-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--moss);
+  background-clip: content-box;
+}
+
+/* ============================================================
+   Reduced motion: drop ambient and reduce transitions to a fade
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.12s !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-status-pulse {
+    animation: none !important;
+  }
+}
+
+/* Pause ambient CSS animation when the tab is hidden (set on <html>) */
+.tab-hidden .canopy-light,
+.tab-hidden .drift-leaf {
+  animation-play-state: paused !important;
+}
+
+/* Slow diagonal leaf drift with a gentle sway. Compositor-only. */
+@keyframes leaf-drift {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate3d(var(--drift-x, 24px), 46vh, 0)
+      rotate(var(--drift-rot, 14deg));
+  }
+  100% {
+    transform: translate3d(0, 92vh, 0) rotate(0deg);
+  }
+}
+
+.drift-leaf {
+  position: absolute;
+  top: -8vh;
+  will-change: transform, opacity;
+  animation: leaf-drift var(--drift-dur, 22s) var(--drift-ease, ease-in-out)
+    var(--drift-delay, 0s) infinite;
+}
+
+
+/* ============================================================
+   Theme crossfade (View Transitions API, progressive enhancement)
+   Whole canvas fades light <-> dark. No harsh flip.
+   ============================================================ */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 520ms;
+  animation-timing-function: var(--ease-organic);
+  mix-blend-mode: normal;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0.001ms;
+  }
+}
+
+/* Per-chunk fade for streaming text, like ink soaking into paper */
+.ink-chunk {
+  animation: ink-soak 0.5s var(--ease-organic) both;
+}
