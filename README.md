@@ -225,7 +225,8 @@ docker-compose.yml       redis + ollama + litellm + api for a one-command stack
 
 ### Prerequisites
 
-- Node.js 20 or newer
+- Node.js 20 or newer to run the app (Node 22 LTS recommended; `npm run test`
+  uses test-runner glob patterns that need Node 21+)
 - A PostgreSQL instance you can reach
 - Optional: Redis (for background trigger scheduling), Ollama (for free local
   models), Docker (for the bundled stack)
