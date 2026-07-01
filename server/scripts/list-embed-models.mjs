@@ -1,10 +1,7 @@
-import postgres from "postgres";
+import { pgFromEnv } from "./db-env.mjs";
 const { CryptoService } = await import("../dist/crypto/crypto.service.js");
 const crypto = new CryptoService(process.env.MASTER_ENCRYPTION_KEY);
-const sql = postgres({
-  host: process.env.PGHOST, port: Number(process.env.PGPORT),
-  user: process.env.PGUSER, password: process.env.PGPASSWORD, database: process.env.PGDATABASE,
-});
+const sql = pgFromEnv();
 try {
   const rows = await sql`SELECT secret_encrypted FROM api_keys WHERE provider = 'google' LIMIT 1`;
   const key = crypto.decrypt(rows[0].secret_encrypted);

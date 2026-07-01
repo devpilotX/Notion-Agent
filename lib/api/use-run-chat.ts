@@ -33,10 +33,16 @@ export function useRunChat(agentId = "default") {
   );
   const [sessionId, setSessionIdState] = React.useState<string | null>(null);
   const sessionRef = React.useRef<string | undefined>(undefined);
+  const abortRef = React.useRef<AbortController | null>(null);
 
   const setSessionId = React.useCallback((id: string | null) => {
     sessionRef.current = id ?? undefined;
     setSessionIdState(id);
+  }, []);
+
+  /** Stop the current reply. Keeps the partial text; the engine stops billing. */
+  const stop = React.useCallback(() => {
+    abortRef.current?.abort();
   }, []);
 
   const send = React.useCallback(
@@ -65,11 +71,14 @@ export function useRunChat(agentId = "default") {
       }
 
       setStatus("streaming");
+      const aborter = new AbortController();
+      abortRef.current = aborter;
       try {
         const res = await fetch(`${BASE}/agents/${agentId}/run`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
+          signal: aborter.signal,
           body: JSON.stringify({ message: text, sessionId: sessionRef.current }),
         });
         if (!res.ok || !res.body) throw new Error(`Run failed (${res.status})`);
@@ -107,12 +116,17 @@ export function useRunChat(agentId = "default") {
           }
         }
       } catch (err) {
-        update((a) => ({
-          ...a,
-          status: "error",
-          error: err instanceof Error ? err.message : "Could not reach the engine.",
-        }));
+        // A user stop aborts the fetch; keep the partial reply without an error.
+        const aborted = aborter.signal.aborted;
+        if (!aborted) {
+          update((a) => ({
+            ...a,
+            status: "error",
+            error: err instanceof Error ? err.message : "Could not reach the engine.",
+          }));
+        }
       } finally {
+        abortRef.current = null;
         setStatus("idle");
         update((a) => (a.status === "streaming" ? { ...a, status: "done" } : a));
         qc.invalidateQueries({ queryKey: ["sessions"] });
@@ -190,6 +204,7 @@ export function useRunChat(agentId = "default") {
     status,
     sessionId,
     send,
+    stop,
     loadSession,
     newSession,
     pushExchange,

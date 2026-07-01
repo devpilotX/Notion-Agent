@@ -1,12 +1,6 @@
-import postgres from "postgres";
+import { pgFromEnv } from "./db-env.mjs";
 
-const sql = postgres({
-  host: process.env.PGHOST,
-  port: Number(process.env.PGPORT),
-  user: process.env.PGUSER,
-  password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE,
-});
+const sql = pgFromEnv();
 
 try {
   const col = await sql`

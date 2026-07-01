@@ -1,4 +1,4 @@
-import postgres from "postgres";
+import { pgFromEnv } from "./db-env.mjs";
 
 const BASE = process.env.BASE ?? "http://localhost:4099";
 
@@ -41,13 +41,7 @@ const after = await (await fetch(`${BASE}/usage`)).json();
 console.log("USAGE_AFTER:", JSON.stringify(after));
 console.log("DELTA:", after.tokens - before.tokens, "expected", used);
 
-const sql = postgres({
-  host: process.env.PGHOST,
-  port: Number(process.env.PGPORT),
-  user: process.env.PGUSER,
-  password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE,
-});
+const sql = pgFromEnv();
 try {
   const [r] = await sql`SELECT coalesce(sum(tokens),0)::int AS tokens, count(*)::int AS runs FROM runs`;
   console.log("DB runs sum tokens:", r.tokens, "| run rows:", r.runs);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import type { SessionDTO, SessionMessageDTO } from "./types";
 import { sessions as sessionFixtures, type Session } from "@/lib/fixtures";
@@ -43,4 +43,21 @@ export function useSessions() {
 
 export function fetchSessionMessages(id: string) {
   return api.get<SessionMessageDTO[]>(`/sessions/${id}/messages`);
+}
+
+export function useRenameSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; title: string }) =>
+      api.patch<SessionDTO>(`/sessions/${v.id}`, { title: v.title }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["sessions"] }),
+  });
+}
+
+export function useDeleteSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.del<{ deleted: true }>(`/sessions/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["sessions"] }),
+  });
 }

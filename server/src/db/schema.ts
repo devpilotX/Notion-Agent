@@ -13,8 +13,8 @@ import {
 
 /**
  * Verdant engine data model.
- * pgvector columns use 768 dims (Google text-embedding-004);
- * change the dimension here if you switch embedding models.
+ * pgvector columns use 768 dims (Google gemini-embedding-001 with
+ * outputDimensionality 768); change the dimension here if you switch models.
  */
 
 const createdAt = () =>

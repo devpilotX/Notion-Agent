@@ -1,4 +1,10 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+} from "@nestjs/common";
 import { eq } from "drizzle-orm";
 import postgres from "postgres";
 import AdmZip from "adm-zip";
@@ -6,7 +12,9 @@ import AdmZip from "adm-zip";
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import { DRIZZLE } from "../db/db.module";
 import type { Database } from "../db/drizzle";
-import { agents, apiKeys } from "../db/schema";
+import { dbConnectionFromEnv } from "../db/drizzle";
+import { apiKeys } from "../db/schema";
+import { getOrCreateDefaultAgent } from "../agents/agents.service";
 import { CryptoService } from "../crypto/crypto.service";
 import { UsersService } from "../users/users.service";
 
@@ -25,41 +33,72 @@ const TEXT_EXT = new Set([
 ]);
 const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico"]);
 
+const EMBED_BATCH = 100; // Google batchEmbedContents caps at 100 requests
+
 @Injectable()
-export class RagService {
+export class RagService implements OnModuleDestroy {
   private readonly log = new Logger("Rag");
   private readonly sql: ReturnType<typeof postgres>;
+  // null = not probed yet; true = embedding column is pgvector, false = real[]
+  private vectorColumn: boolean | null = null;
 
   constructor(
     @Inject(DRIZZLE) private readonly db: Database,
     private readonly crypto: CryptoService,
     private readonly users: UsersService,
   ) {
-    this.sql = postgres({
-      host: process.env.PGHOST ?? "localhost",
-      port: Number(process.env.PGPORT ?? 5432),
-      user: process.env.PGUSER ?? "postgres",
-      password: process.env.PGPASSWORD,
-      database: process.env.PGDATABASE ?? "verdant",
-      max: 4,
-    });
+    // Honors DATABASE_URL and falls back to the discrete PG* vars, exactly
+    // like the main Drizzle connection.
+    const conn = dbConnectionFromEnv();
+    this.sql =
+      "url" in conn
+        ? postgres(conn.url, { max: 4 })
+        : postgres({
+            host: conn.host,
+            port: conn.port,
+            user: conn.user,
+            password: conn.password,
+            database: conn.database,
+            max: 4,
+          });
+  }
+
+  async onModuleDestroy() {
+    await this.sql.end({ timeout: 5 }).catch(() => {});
   }
 
   private async agentId(userId: string): Promise<string> {
-    const rows = await this.db
-      .select({ id: agents.id })
-      .from(agents)
-      .where(eq(agents.userId, userId))
-      .orderBy(agents.createdAt)
-      .limit(1);
-    return rows[0]?.id;
+    const agent = await getOrCreateDefaultAgent(this.db, userId);
+    return agent.id;
+  }
+
+  /** Whether documents.embedding is a native pgvector column (cached). */
+  private async usesVector(): Promise<boolean> {
+    if (this.vectorColumn !== null) return this.vectorColumn;
+    try {
+      const rows = await this.sql<{ udt_name: string }[]>`
+        SELECT udt_name FROM information_schema.columns
+        WHERE table_name = 'documents' AND column_name = 'embedding'`;
+      this.vectorColumn = rows[0]?.udt_name === "vector";
+    } catch {
+      this.vectorColumn = false;
+    }
+    return this.vectorColumn;
   }
 
   // ---------------------------------------------------------------- ingest
 
   async ingest(files: UploadFile[]): Promise<{ source: string; chunks: number; note?: string }[]> {
+    if (files.length === 0) return [];
     const userId = await this.users.getCurrentUserId();
     const agentId = await this.agentId(userId);
+    const key = await this.googleKey();
+    if (!key) {
+      throw new BadRequestException(
+        "Documents need a Google key for embeddings (gemini-embedding-001). Add one in the Keys card, then upload again.",
+      );
+    }
+    const vector = await this.usesVector();
     const out: { source: string; chunks: number; note?: string }[] = [];
 
     for (const file of files) {
@@ -70,12 +109,19 @@ export class RagService {
           continue;
         }
         const chunks = chunkText(piece.text);
-        const embeddings = await this.embed(chunks);
+        const embeddings = await this.embed(chunks, key);
         for (let i = 0; i < chunks.length; i++) {
-          const lit = `{${embeddings[i].join(",")}}`; // postgres real[] literal
-          await this.sql`
-            INSERT INTO documents (agent_id, source, chunk, embedding)
-            VALUES (${agentId}, ${piece.source}, ${chunks[i]}, ${lit}::real[])`;
+          if (vector) {
+            const lit = `[${embeddings[i].join(",")}]`; // pgvector literal
+            await this.sql`
+              INSERT INTO documents (agent_id, source, chunk, embedding)
+              VALUES (${agentId}, ${piece.source}, ${chunks[i]}, ${lit}::vector)`;
+          } else {
+            const lit = `{${embeddings[i].join(",")}}`; // postgres real[] literal
+            await this.sql`
+              INSERT INTO documents (agent_id, source, chunk, embedding)
+              VALUES (${agentId}, ${piece.source}, ${chunks[i]}, ${lit}::real[])`;
+          }
         }
         out.push({ source: piece.source, chunks: chunks.length });
       }
@@ -103,15 +149,33 @@ export class RagService {
   // ---------------------------------------------------------------- retrieve
 
   async retrieve(agentId: string, query: string, k = 5): Promise<RetrievedChunk[]> {
-    const rows = await this.sql<{ source: string; chunk: string; embedding: number[] }[]>`
-      SELECT source, chunk, embedding FROM documents WHERE agent_id = ${agentId}`;
-    if (rows.length === 0) return [];
+    const key = await this.googleKey();
+    if (!key) return [];
     let q: number[];
     try {
-      [q] = await this.embed([query]);
+      [q] = await this.embed([query], key);
     } catch {
       return [];
     }
+
+    // Native pgvector path: cosine distance in the database (uses the HNSW
+    // index) instead of loading every chunk into Node.
+    if (await this.usesVector()) {
+      const lit = `[${q.join(",")}]`;
+      const rows = await this.sql<{ source: string; chunk: string; score: number }[]>`
+        SELECT source, chunk, 1 - (embedding <=> ${lit}::vector) AS score
+        FROM documents
+        WHERE agent_id = ${agentId} AND embedding IS NOT NULL
+        ORDER BY embedding <=> ${lit}::vector
+        LIMIT ${k}`;
+      return rows.map((r) => ({ ...r, score: Number(r.score) }));
+    }
+
+    // real[] fallback: cosine similarity computed in Node.
+    const rows = await this.sql<{ source: string; chunk: string; embedding: number[] }[]>`
+      SELECT source, chunk, embedding FROM documents
+      WHERE agent_id = ${agentId} AND embedding IS NOT NULL`;
+    if (rows.length === 0) return [];
     return rows
       .map((r) => ({ source: r.source, chunk: r.chunk, score: cosine(q, r.embedding) }))
       .sort((a, b) => b.score - a.score)
@@ -163,27 +227,34 @@ export class RagService {
     return out;
   }
 
-  /** Embed texts with Google gemini-embedding-001 (768 dims). Needs a Google key. */
-  private async embed(texts: string[]): Promise<number[][]> {
-    const key = await this.googleKey();
-    if (!key) throw new Error("No Google key for embeddings");
+  /**
+   * Embed texts with Google gemini-embedding-001 at 768 dims, batched up to
+   * 100 texts per request so folder uploads stay fast.
+   */
+  private async embed(texts: string[], key: string): Promise<number[][]> {
     const out: number[][] = [];
-    for (const text of texts) {
+    for (let i = 0; i < texts.length; i += EMBED_BATCH) {
+      const batch = texts.slice(i, i + EMBED_BATCH);
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${encodeURIComponent(key)}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents?key=${encodeURIComponent(key)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: "models/gemini-embedding-001",
-            content: { parts: [{ text }] },
-            outputDimensionality: 768,
+            requests: batch.map((text) => ({
+              model: "models/gemini-embedding-001",
+              content: { parts: [{ text }] },
+              outputDimensionality: 768,
+            })),
           }),
         },
       );
       if (!res.ok) throw new Error(`embed failed (${res.status})`);
-      const data = (await res.json()) as { embedding?: { values: number[] } };
-      if (data.embedding?.values) out.push(data.embedding.values);
+      const data = (await res.json()) as { embeddings?: Array<{ values: number[] }> };
+      for (const e of data.embeddings ?? []) out.push(e.values);
+    }
+    if (out.length !== texts.length) {
+      throw new Error(`embed returned ${out.length} vectors for ${texts.length} texts`);
     }
     return out;
   }
@@ -201,7 +272,7 @@ export class RagService {
   }
 }
 
-function chunkText(text: string, size = 1200, overlap = 150): string[] {
+export function chunkText(text: string, size = 1200, overlap = 150): string[] {
   const clean = text.replace(/\s+/g, " ").trim();
   if (clean.length <= size) return clean ? [clean] : [];
   const chunks: string[] = [];
@@ -213,7 +284,7 @@ function chunkText(text: string, size = 1200, overlap = 150): string[] {
   return chunks;
 }
 
-function cosine(a: number[], b: number[]): number {
+export function cosine(a: number[], b: number[]): number {
   let dot = 0;
   let na = 0;
   let nb = 0;

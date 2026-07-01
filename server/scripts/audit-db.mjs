@@ -1,12 +1,6 @@
-import postgres from "postgres";
+import { pgFromEnv } from "./db-env.mjs";
 
-const sql = postgres({
-  host: process.env.PGHOST ?? "localhost",
-  port: Number(process.env.PGPORT ?? 5432),
-  user: process.env.PGUSER ?? "postgres",
-  password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE ?? "verdant",
-});
+const sql = pgFromEnv();
 
 try {
   const ext = await sql`SELECT extname FROM pg_extension WHERE extname = 'vector'`;

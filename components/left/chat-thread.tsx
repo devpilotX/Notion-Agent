@@ -3,6 +3,7 @@
 import * as React from "react";
 import type { AssistantMessage, ChatMessage, ChatStep } from "@/lib/api/use-run-chat";
 import { Leaf, Check, Sprout, Speaker } from "@/components/icons";
+import { Markdown } from "@/lib/markdown";
 import { useSpeech } from "@/lib/use-voice";
 import { cn } from "@/lib/utils";
 
@@ -37,10 +38,7 @@ function AssistantBubble({ message }: { message: AssistantMessage }) {
       return;
     }
     setSpeaking(true);
-    speak(text);
-    // Reset the toggle when playback likely finished (rough estimate by length).
-    const ms = Math.min(60000, Math.max(2500, text.length * 55));
-    window.setTimeout(() => setSpeaking(false), ms);
+    speak(plainTextForSpeech(text), () => setSpeaking(false));
   };
 
   return (
@@ -53,19 +51,15 @@ function AssistantBubble({ message }: { message: AssistantMessage }) {
           <StepTrace steps={message.steps} streaming={streaming} />
         )}
         {message.chunks.length > 0 && (
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-bark">
-            {message.chunks.map((c, i) => (
-              <span key={i} className="ink-chunk">
-                {c}
-              </span>
-            ))}
+          <div className="min-w-0">
+            <Markdown text={text} />
             {streaming && (
               <span
                 aria-hidden="true"
                 className="ml-0.5 inline-block h-4 w-[2px] translate-y-0.5 animate-pulse bg-fern"
               />
             )}
-          </p>
+          </div>
         )}
         {!streaming && ttsSupported && text.length > 0 && (
           <button
@@ -90,6 +84,16 @@ function AssistantBubble({ message }: { message: AssistantMessage }) {
       </div>
     </div>
   );
+}
+
+/** Markdown reads badly aloud; flatten it before text-to-speech. */
+function plainTextForSpeech(md: string): string {
+  return md
+    .replace(/```[\s\S]*?(```|$)/g, " Code block. ")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/[*_`#>~]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function StepTrace({

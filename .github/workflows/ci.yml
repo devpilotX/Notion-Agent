@@ -35,6 +35,14 @@ jobs:
         run: npm ci
         working-directory: server
 
+      - name: Engine type check
+        run: npm run typecheck
+        working-directory: server
+
+      - name: Engine tests
+        run: npm run test
+        working-directory: server
+
       - name: Engine build
         run: npm run build
         working-directory: server

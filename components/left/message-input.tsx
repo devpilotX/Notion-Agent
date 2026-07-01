@@ -20,13 +20,25 @@ export const MessageInput = React.forwardRef<
     value: string;
     onChange: (v: string) => void;
     onSend: (text: string) => void;
+    onStop?: () => void;
+    streaming?: boolean;
     onAttachClick?: () => void;
     attachCount?: number;
     attachBusy?: boolean;
     disabled?: boolean;
   }
 >(function MessageInput(
-  { value, onChange, onSend, onAttachClick, attachCount = 0, attachBusy = false, disabled },
+  {
+    value,
+    onChange,
+    onSend,
+    onStop,
+    streaming = false,
+    onAttachClick,
+    attachCount = 0,
+    attachBusy = false,
+    disabled,
+  },
   ref,
 ) {
   const innerRef = React.useRef<HTMLTextAreaElement>(null);
@@ -170,17 +182,30 @@ export const MessageInput = React.forwardRef<
           </Tooltip>
         )}
 
-        <Button
-          size="icon"
-          aria-label="Send message"
-          onClick={send}
-          disabled={disabled || !value.trim()}
-          className="self-end rounded-[14px]"
-        >
-          <motion.span whileTap={{ y: -2, x: 2 }}>
-            <ArrowUp size={18} />
-          </motion.span>
-        </Button>
+        {streaming && onStop ? (
+          <Tooltip label="Stop generating">
+            <Button
+              size="icon"
+              aria-label="Stop generating"
+              onClick={onStop}
+              className="self-end rounded-[14px]"
+            >
+              <Stop size={16} />
+            </Button>
+          </Tooltip>
+        ) : (
+          <Button
+            size="icon"
+            aria-label="Send message"
+            onClick={send}
+            disabled={disabled || !value.trim()}
+            className="self-end rounded-[14px]"
+          >
+            <motion.span whileTap={{ y: -2, x: 2 }}>
+              <ArrowUp size={18} />
+            </motion.span>
+          </Button>
+        )}
       </div>
       <p className="mt-2 px-1 text-center text-[11px] text-stone/70">
         {name} can make mistakes. Replies use your saved keys.

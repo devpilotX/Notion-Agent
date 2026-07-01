@@ -1,17 +1,11 @@
-import postgres from "postgres";
+import { pgFromEnv } from "./db-env.mjs";
 import { fileURLToPath } from "node:url";
 
 const BASE = process.env.BASE ?? "http://localhost:4000";
 const J = async (r) => ({ status: r.status, body: await r.json().catch(() => null) });
 const serverPath = fileURLToPath(new URL("./mcp-demo-server.mjs", import.meta.url));
 
-const sql = postgres({
-  host: process.env.PGHOST,
-  port: Number(process.env.PGPORT),
-  user: process.env.PGUSER,
-  password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE,
-});
+const sql = pgFromEnv();
 
 async function runQuery(message) {
   const res = await fetch(`${BASE}/agents/default/run`, {

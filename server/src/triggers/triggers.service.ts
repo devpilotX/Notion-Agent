@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import * as fs from "node:fs";
 import * as net from "node:net";
+import { randomBytes } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { DRIZZLE } from "../db/db.module";
 import type { Database } from "../db/drizzle";
@@ -38,6 +39,13 @@ export type TriggerView = {
 
 const DEFAULT_MESSAGE = "Scheduled run: do your job and report briefly.";
 
+/**
+ * Trigger scheduling runs in two modes:
+ *  - Redis reachable: interval and cron repeats live in BullMQ (durable across
+ *    restarts, exact-once via the queue). File watchers stay in-process.
+ *  - No Redis: everything runs in-process — interval timers, a 15s cron tick,
+ *    and file watchers — so scheduled triggers still fire on a single node.
+ */
 @Injectable()
 export class TriggersService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger("Triggers");
@@ -60,17 +68,26 @@ export class TriggersService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit() {
     this.redisAvailable = await this.probeRedis();
-    if (!this.redisAvailable) {
-      // Triggers still persist to Postgres and can be fired manually; the
-      // background queue simply stays off. No connection, no retry loop.
-      this.log.log("trigger queue disabled, Redis not running.");
-      return;
+    if (this.redisAvailable) {
+      try {
+        await this.startBullMq();
+      } catch (e) {
+        this.redisAvailable = false;
+        this.log.warn(`BullMQ start failed, using in-process scheduling: ${(e as Error).message}`);
+      }
     }
-    await this.startBullMq();
+
     const rows = await this.db.select().from(triggers).where(eq(triggers.enabled, true));
     for (const r of rows) await this.schedule(this.toView(r));
-    this.cronTick = setInterval(() => void this.evaluateCron(), 15_000);
-    this.log.log("trigger queue active (BullMQ).");
+
+    if (!this.redisAvailable) {
+      // In-process cron: only when BullMQ is not handling cron patterns,
+      // otherwise every cron trigger would fire twice.
+      this.cronTick = setInterval(() => void this.evaluateCron(), 15_000);
+      this.log.log("trigger scheduling active (in-process; add Redis for a durable queue).");
+    } else {
+      this.log.log("trigger scheduling active (BullMQ).");
+    }
   }
 
   onModuleDestroy() {
@@ -133,13 +150,13 @@ export class TriggersService implements OnModuleInit, OnModuleDestroy {
       .returning();
     if (!row) throw new NotFoundException("Trigger not found");
     const view = this.toView(row);
-    this.unschedule(id);
+    await this.unschedule(id);
     if (view.enabled) await this.schedule(view);
     return view;
   }
 
   async remove(id: string): Promise<{ id: string; deleted: true }> {
-    this.unschedule(id);
+    await this.unschedule(id);
     const res = await this.db
       .delete(triggers)
       .where(eq(triggers.id, id))
@@ -157,9 +174,12 @@ export class TriggersService implements OnModuleInit, OnModuleDestroy {
     return this.fireView(this.toView(row), overrideMessage);
   }
 
-  /** Fire a webhook trigger found by its secret token. */
+  /** Fire an enabled webhook trigger found by its secret token. */
   async fireWebhook(token: string, payloadText?: string) {
-    const rows = await this.db.select().from(triggers).where(eq(triggers.type, "webhook"));
+    const rows = await this.db
+      .select()
+      .from(triggers)
+      .where(and(eq(triggers.type, "webhook"), eq(triggers.enabled, true)));
     const match = rows.find((r) => (r.configJson as TriggerConfig)?.token === token);
     if (!match) throw new NotFoundException("Webhook not found");
     return this.fireView(this.toView(match), payloadText);
@@ -186,7 +206,8 @@ export class TriggersService implements OnModuleInit, OnModuleDestroy {
 
   private async schedule(view: TriggerView) {
     if (!view.enabled) return;
-    if (!this.redisAvailable) return; // queue off: triggers persist but stay inactive
+
+    // File watching is inherently in-process, in both modes.
     if (view.type === "file" && view.config.path) {
       this.watchFile(view);
       return;
@@ -195,18 +216,24 @@ export class TriggersService implements OnModuleInit, OnModuleDestroy {
     const { intervalSec, cron } = view.config;
 
     if (this.redisAvailable && this.queue) {
-      const repeat = cron ? { pattern: cron } : { every: (intervalSec ?? 60) * 1000 };
-      await this.queue.add(view.id, { id: view.id }, { repeat, jobId: view.id });
+      const repeat = cron ? { pattern: cron } : { every: Math.max(1, intervalSec ?? 60) * 1000 };
+      // Job schedulers are keyed by trigger id, so unschedule can remove them
+      // without having to reconstruct the exact repeat options.
+      await this.queue.upsertJobScheduler(view.id, repeat, {
+        name: view.id,
+        data: { id: view.id },
+      });
       return;
     }
-    // In-process: interval timers fire directly; cron is handled by the shared tick.
+
+    // In-process: interval timers fire directly; cron is handled by the tick.
     if (intervalSec && intervalSec > 0) {
       const t = setInterval(() => void this.fire(view.id).catch(() => {}), intervalSec * 1000);
       this.intervalTimers.set(view.id, t);
     }
   }
 
-  private unschedule(id: string) {
+  private async unschedule(id: string) {
     const t = this.intervalTimers.get(id);
     if (t) {
       clearInterval(t);
@@ -217,7 +244,9 @@ export class TriggersService implements OnModuleInit, OnModuleDestroy {
       w.close();
       this.fileWatchers.delete(id);
     }
-    if (this.queue) void this.queue.removeRepeatable(id, {}).catch(() => {});
+    if (this.queue) {
+      await this.queue.removeJobScheduler(id).catch(() => {});
+    }
   }
 
   private watchFile(view: TriggerView) {
@@ -302,7 +331,7 @@ export class TriggersService implements OnModuleInit, OnModuleDestroy {
 }
 
 function cryptoToken(): string {
-  return Array.from({ length: 24 }, () =>
-    "abcdefghijklmnopqrstuvwxyz0123456789"[Math.floor(Math.random() * 36)],
-  ).join("");
+  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const bytes = randomBytes(24);
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
 }

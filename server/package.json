@@ -2,7 +2,7 @@
   "name": "verdant-engine",
   "version": "0.1.0",
   "private": true,
-  "description": "AgentForge agent engine and API (NestJS).",
+  "description": "Notion Agent engine and API (NestJS): keys, models, runs, tools, retrieval, triggers, MCP.",
   "scripts": {
     "build": "nest build",
     "start": "nest start",

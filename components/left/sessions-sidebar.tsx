@@ -44,6 +44,10 @@ export function SessionsSidebar({ onNavigate }: { onNavigate?: () => void }) {
             chat.loadSession(id);
             onNavigate?.();
           }}
+          onDeleted={(id) => {
+            // Deleting the open session clears the thread back to the hero.
+            if (chat.sessionId === id) chat.newSession();
+          }}
         />
       </div>
     </div>

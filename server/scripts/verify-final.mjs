@@ -1,10 +1,7 @@
-import postgres from "postgres";
+import { pgFromEnv } from "./db-env.mjs";
 
 const BASE = process.env.BASE ?? "http://localhost:4000";
-const sql = postgres({
-  host: process.env.PGHOST, port: Number(process.env.PGPORT),
-  user: process.env.PGUSER, password: process.env.PGPASSWORD, database: process.env.PGDATABASE,
-});
+const sql = pgFromEnv();
 const get = async (p) => await (await fetch(`${BASE}${p}`)).json();
 const post = (p, b) => fetch(`${BASE}${p}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: b ? JSON.stringify(b) : undefined });
 

@@ -20,9 +20,9 @@ const fraunces = Fraunces({
 });
 
 export const metadata: Metadata = {
-  title: "AgentForge · Fern",
+  title: "Notion Agent · Fern",
   description:
-    "A calm, jungle-themed agent interface. The Verdant design system. UI demo with mock data.",
+    "A self-hosted AI agent workbench with a calm, jungle-themed interface. Bring your own keys, connect MCP tools, ground replies in your documents, and watch every step.",
 };
 
 export const viewport: Viewport = {

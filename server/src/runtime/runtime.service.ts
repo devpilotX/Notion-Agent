@@ -36,7 +36,7 @@ export class RuntimeService {
     private readonly connections: ConnectionsService,
   ) {}
 
-  async run(input: RunInput, send: Send): Promise<void> {
+  async run(input: RunInput, send: Send, signal?: AbortSignal): Promise<void> {
     const runId = randomUUID();
     const startedAt = Date.now();
     const userId = await this.users.getCurrentUserId();
@@ -180,6 +180,7 @@ export class RuntimeService {
           model: resolved.model,
           system,
           messages: convo,
+          ...(signal ? { abortSignal: signal } : {}),
           ...(Object.keys(toolSet).length
             ? { tools: toolSet, stopWhen: stepCountIs(agent.maxSteps ?? 8) }
             : {}),
@@ -239,6 +240,7 @@ export class RuntimeService {
           break;
         } catch (err) {
           lastErr = err;
+          if (signal?.aborted || isAbortError(err)) throw err; // cancelled: no retries
           if (full.length > 0) throw err; // a partial answer already streamed
           if (i < tiers.length - 1) {
             const retryStep = randomUUID();
@@ -275,9 +277,11 @@ export class RuntimeService {
       });
       send({ type: "run.done", runId, status: "ok" });
     } catch (err) {
+      const cancelled = signal?.aborted || isAbortError(err);
       send({ type: "step.end", stepId: respStep });
-      send({ type: "error", message: friendlyError(err) });
+      if (!cancelled) send({ type: "error", message: friendlyError(err) });
       if (full) {
+        // Keep whatever streamed before the stop or failure.
         await this.db
           .insert(messages)
           .values({ sessionId, role: "assistant", content: full });
@@ -285,12 +289,12 @@ export class RuntimeService {
       await this.db.insert(runs).values({
         agentId: agent.id,
         triggerId: input.triggerId ?? null,
-        status: "error",
+        status: cancelled ? "cancelled" : "error",
         tokens: 0,
         cost: 0,
         durationMs: Date.now() - startedAt,
       });
-      send({ type: "run.done", runId, status: "error" });
+      send({ type: "run.done", runId, status: cancelled ? "cancelled" : "error" });
     } finally {
       for (const close of mcpClosers) await close();
     }
@@ -359,8 +363,14 @@ export class RuntimeService {
   }
 }
 
+/** True when an error comes from an aborted run (client stop or disconnect). */
+export function isAbortError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return err.name === "AbortError" || /abort/i.test(err.message);
+}
+
 /** Short, human-readable summary of a tool's output for the step trace. */
-function summarizeToolOutput(output: unknown): string {
+export function summarizeToolOutput(output: unknown): string {
   if (output == null) return "done";
   const o = output as Record<string, unknown>;
   if (o.blocked) return `blocked: ${String(o.reason ?? "not allowed")}`;
@@ -374,7 +384,7 @@ function summarizeToolOutput(output: unknown): string {
 
 
 /** True for greetings and small talk that need no tools or document lookup. */
-function isTrivial(message: string): boolean {
+export function isTrivial(message: string): boolean {
   const t = message.trim().toLowerCase().replace(/[!.?]+$/g, "");
   if (t.length > 40) return false;
   if (
@@ -387,10 +397,10 @@ function isTrivial(message: string): boolean {
   return /^(how are you|how's it going|what'?s up|who are you|what can you do)/.test(t);
 }
 
-type Turn = { role: "user" | "assistant" | "system"; content: string };
+export type Turn = { role: "user" | "assistant" | "system"; content: string };
 
 /** Keep only the recent turns within a character budget to control token use. */
-function trimHistory(convo: Turn[], maxMessages = 16, maxChars = 12000): Turn[] {
+export function trimHistory(convo: Turn[], maxMessages = 16, maxChars = 12000): Turn[] {
   let kept = convo.slice(-maxMessages);
   let total = kept.reduce((n, m) => n + m.content.length, 0);
   while (kept.length > 1 && total > maxChars) {
@@ -401,7 +411,7 @@ function trimHistory(convo: Turn[], maxMessages = 16, maxChars = 12000): Turn[] 
 }
 
 /** Map raw provider errors to a short, readable message for the UI. */
-function friendlyError(err: unknown): string {
+export function friendlyError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err ?? "");
   const m = raw.toLowerCase();
   if (/context length|maximum context|too many tokens|reduce the length|context_length/.test(m))

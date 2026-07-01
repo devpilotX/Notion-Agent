@@ -175,6 +175,13 @@ export const Trash = (p: IconProps) => (
   </Svg>
 );
 
+export const Pencil = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 20l.9-3.6L15.6 5.7a1.7 1.7 0 0 1 2.4 0l.3.3a1.7 1.7 0 0 1 0 2.4L7.6 19.1 4 20z" />
+    <path d="M13.8 7.5l2.7 2.7" />
+  </Svg>
+);
+
 export const Search = (p: IconProps) => (
   <Svg {...p}>
     <circle cx="11" cy="11" r="6" />

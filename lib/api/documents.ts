@@ -28,7 +28,16 @@ export function useUploadDocuments() {
         body: fd,
         credentials: "include",
       });
-      if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+      if (!res.ok) {
+        // Surface the engine's message (e.g. "add a Google key for embeddings").
+        const body = (await res.json().catch(() => null)) as
+          | { message?: string | string[] }
+          | null;
+        const message = Array.isArray(body?.message)
+          ? body.message.join(", ")
+          : body?.message;
+        throw new Error(message || `Upload failed (${res.status})`);
+      }
       return (await res.json()) as IngestResult[];
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["documents"] }),

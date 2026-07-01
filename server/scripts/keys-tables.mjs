@@ -1,14 +1,8 @@
-import postgres from "postgres";
+import { pgFromEnv } from "./db-env.mjs";
 
 // Creates only the tables the keys slice needs, so we can run live without
 // pgvector installed. Full `npm run db:push` covers the rest once pgvector exists.
-const sql = postgres({
-  host: process.env.PGHOST ?? "localhost",
-  port: Number(process.env.PGPORT ?? 5432),
-  user: process.env.PGUSER ?? "postgres",
-  password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE ?? "verdant",
-});
+const sql = pgFromEnv();
 
 try {
   await sql`CREATE TABLE IF NOT EXISTS users (

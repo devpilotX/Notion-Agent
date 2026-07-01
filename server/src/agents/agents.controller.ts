@@ -162,6 +162,14 @@ export class AgentsController {
     res.setHeader("X-Accel-Buffering", "no");
     (res as unknown as { flushHeaders?: () => void }).flushHeaders?.();
 
+    // Stop the model call as soon as the client disconnects (Stop button,
+    // closed tab), so no tokens are spent streaming into a dead socket.
+    const aborter = new AbortController();
+    let finished = false;
+    res.on("close", () => {
+      if (!finished) aborter.abort();
+    });
+
     const send = (e: RunEvent) => res.write(sseFrame(e));
     try {
       await this.runtime.run(
@@ -172,6 +180,7 @@ export class AgentsController {
           model: parsed.data.model,
         },
         send,
+        aborter.signal,
       );
     } catch (err) {
       send({
@@ -179,6 +188,7 @@ export class AgentsController {
         message: err instanceof Error ? err.message : "Run failed",
       });
     } finally {
+      finished = true;
       res.end();
     }
   }

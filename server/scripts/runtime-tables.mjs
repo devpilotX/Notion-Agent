@@ -1,13 +1,7 @@
-import postgres from "postgres";
+import { pgFromEnv } from "./db-env.mjs";
 
 // Core chat tables for the runtime slice. No pgvector needed.
-const sql = postgres({
-  host: process.env.PGHOST ?? "localhost",
-  port: Number(process.env.PGPORT ?? 5432),
-  user: process.env.PGUSER ?? "postgres",
-  password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE ?? "verdant",
-});
+const sql = pgFromEnv();
 
 try {
   await sql`CREATE TABLE IF NOT EXISTS agents (

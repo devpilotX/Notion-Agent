@@ -10,7 +10,7 @@ import { Select, type SelectGroup } from "@/components/ui/select";
 import { IconButton } from "@/components/ui/icon-button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/toast";
-import { Play, Chat, At, Plus, Rotate, Link, Paperclip, Trash } from "@/components/icons";
+import { Play, Chat, At, Plus, Rotate, Link, Paperclip, Trash, Share } from "@/components/icons";
 import { useAgentDraft, type Triggers } from "./agent-config-context";
 import {
   useTriggers,
@@ -133,6 +133,21 @@ export function TriggersSection({ delay = 0 }: { delay?: number }) {
     }
   };
 
+  const onCopyWebhook = async (t: TriggerDTO) => {
+    const base = process.env.NEXT_PUBLIC_API_URL ?? "";
+    if (!t.config.token || !base) return;
+    try {
+      await navigator.clipboard.writeText(`${base}/triggers/webhook/${t.config.token}`);
+      toast({
+        title: "Webhook URL copied",
+        description: "POST to it with an optional { message } body.",
+        variant: "success",
+      });
+    } catch {
+      toast({ title: "Copy failed", variant: "danger" });
+    }
+  };
+
   return (
     <SectionCard
       icon={<Play size={18} />}
@@ -178,6 +193,13 @@ export function TriggersSection({ delay = 0 }: { delay?: number }) {
                 onCheckedChange={(v) => updateTrigger.mutate({ id: t.id, enabled: v })}
                 label={`Enable ${t.type} trigger`}
               />
+              {t.type === "webhook" && t.config.token && (
+                <Tooltip label="Copy webhook URL">
+                  <IconButton aria-label="Copy webhook URL" onClick={() => onCopyWebhook(t)}>
+                    <Share size={16} />
+                  </IconButton>
+                </Tooltip>
+              )}
               <Tooltip label="Run now">
                 <IconButton aria-label="Run trigger now" onClick={() => onFire(t)}>
                   <Play size={16} />

@@ -1,4 +1,4 @@
-import postgres from "postgres";
+import { pgFromEnv } from "./db-env.mjs";
 
 const BASE = process.env.BASE ?? "http://localhost:4099";
 
@@ -52,13 +52,7 @@ const msgs = await (await fetch(`${BASE}/sessions/${sidA}/messages`)).json();
 console.log("MESSAGES_COUNT:", msgs.length);
 msgs.forEach((m) => console.log(`  ${m.role}: ${String(m.content).slice(0, 40)}`));
 
-const sql = postgres({
-  host: process.env.PGHOST,
-  port: Number(process.env.PGPORT),
-  user: process.env.PGUSER,
-  password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE,
-});
+const sql = pgFromEnv();
 try {
   const rows = await sql`SELECT id, title, created_at FROM sessions ORDER BY created_at DESC LIMIT 5`;
   console.log("DB newest sessions:");

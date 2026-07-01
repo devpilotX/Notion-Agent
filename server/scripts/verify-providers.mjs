@@ -1,12 +1,9 @@
-import postgres from "postgres";
+import { pgFromEnv } from "./db-env.mjs";
 const { CryptoService } = await import("../dist/crypto/crypto.service.js");
 
 const BASE = process.env.BASE ?? "http://localhost:4000";
 const crypto = new CryptoService(process.env.MASTER_ENCRYPTION_KEY);
-const sql = postgres({
-  host: process.env.PGHOST, port: Number(process.env.PGPORT),
-  user: process.env.PGUSER, password: process.env.PGPASSWORD, database: process.env.PGDATABASE,
-});
+const sql = pgFromEnv();
 const detect = (secret) =>
   fetch(`${BASE}/keys/detect`, {
     method: "POST", headers: { "Content-Type": "application/json" },

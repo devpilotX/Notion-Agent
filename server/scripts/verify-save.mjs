@@ -1,4 +1,4 @@
-import postgres from "postgres";
+import { pgFromEnv } from "./db-env.mjs";
 
 const BASE = process.env.BASE ?? "http://localhost:4099";
 const json = async (r) => await r.json();
@@ -30,13 +30,7 @@ console.log("RELOAD name:", after.name, "| desc:", after.description);
 console.log("RELOAD model:", after.modelMode, after.modelId);
 console.log("RELOAD settings:", JSON.stringify(after.settings));
 
-const sql = postgres({
-  host: process.env.PGHOST,
-  port: Number(process.env.PGPORT),
-  user: process.env.PGUSER,
-  password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE,
-});
+const sql = pgFromEnv();
 try {
   const rows = await sql`SELECT name, model_mode, model_id, settings_json FROM agents WHERE id = ${before.id}`;
   console.log("DB agents row:", JSON.stringify(rows[0]));

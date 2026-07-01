@@ -1,22 +1,16 @@
-import postgres from "postgres";
+import { pgFromEnv } from "./db-env.mjs";
 
 /**
  * Idempotent schema sync for the Verdant engine.
  * Safe to run repeatedly: every statement uses IF NOT EXISTS guards.
+ * Honors DATABASE_URL or the discrete PG* variables.
  * Run with:  node --env-file=.env server/scripts/migrate.mjs   (from repo root)
  */
 
-const sql = postgres({
-  host: process.env.PGHOST ?? "localhost",
-  port: Number(process.env.PGPORT ?? 5432),
-  user: process.env.PGUSER ?? "postgres",
-  password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE ?? "verdant",
-  onnotice: () => {}, // silence "already exists" notices
-});
+const sql = pgFromEnv({ onnotice: () => {} }); // silence "already exists" notices
 
 const log = (...a) => console.log("[migrate]", ...a);
-const EMBED_DIM = 768; // Google text-embedding-004
+const EMBED_DIM = 768; // Google gemini-embedding-001 at outputDimensionality 768
 
 try {
   // --- 1. Columns the running code expects on existing tables ---

@@ -1,4 +1,4 @@
-import postgres from "postgres";
+import { pgFromEnv } from "./db-env.mjs";
 
 const BASE = process.env.BASE ?? "http://localhost:4000";
 const J = async (r) => ({ status: r.status, body: await r.json().catch(() => null) });
@@ -10,13 +10,7 @@ const post = (p, b) =>
   }).then(J);
 const del = (p) => fetch(`${BASE}${p}`, { method: "DELETE" }).then(J);
 
-const sql = postgres({
-  host: process.env.PGHOST,
-  port: Number(process.env.PGPORT),
-  user: process.env.PGUSER,
-  password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE,
-});
+const sql = pgFromEnv();
 
 const runCount = async (id) =>
   (await sql`SELECT count(*)::int AS n FROM runs WHERE trigger_id = ${id}`)[0].n;
@@ -32,9 +26,16 @@ try {
   const dbRow = await sql`SELECT type, enabled, config_json FROM triggers WHERE id = ${schedId}`;
   console.log("DB persisted:", JSON.stringify(dbRow[0]));
 
-  console.log("waiting 8s for scheduled fires...");
-  await new Promise((r) => setTimeout(r, 8000));
-  const n1 = await runCount(schedId);
+  // A fire starts every 3s but its runs row lands only after the model reply
+  // completes, so poll with a deadline instead of a fixed sleep.
+  console.log("waiting up to 30s for a scheduled fire...");
+  const deadline = Date.now() + 30_000;
+  let n1 = 0;
+  while (Date.now() < deadline) {
+    n1 = await runCount(schedId);
+    if (n1 >= 1) break;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
   console.log("RUNS fired by scheduled trigger:", n1, n1 >= 1 ? "PASS" : "FAIL");
 
   // 2. Webhook trigger fired by token.

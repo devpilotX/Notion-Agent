@@ -1,14 +1,11 @@
-import postgres from "postgres";
+import { pgFromEnv } from "./db-env.mjs";
 import { createGroq } from "@ai-sdk/groq";
 import { streamText, stepCountIs } from "ai";
 const { CryptoService } = await import("../dist/crypto/crypto.service.js");
 const { buildWebTools } = await import("../dist/runtime/tools.js");
 
 const crypto = new CryptoService(process.env.MASTER_ENCRYPTION_KEY);
-const sql = postgres({
-  host: process.env.PGHOST, port: Number(process.env.PGPORT),
-  user: process.env.PGUSER, password: process.env.PGPASSWORD, database: process.env.PGDATABASE,
-});
+const sql = pgFromEnv();
 
 try {
   const row = await sql`SELECT secret_encrypted FROM api_keys WHERE provider='groq' LIMIT 1`;

@@ -1,5 +1,5 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { DRIZZLE } from "../db/db.module";
 import type { Database } from "../db/drizzle";
 import { messages, sessions } from "../db/schema";
@@ -90,4 +90,38 @@ export class SessionsService {
       .returning();
     return { id: s.id, title: "New session", createdAt: s.createdAt, messageCount: 0 };
   }
+
+  async rename(sessionId: string, title: string): Promise<SessionView> {
+    const userId = await this.users.getCurrentUserId();
+    const [s] = await this.db
+      .update(sessions)
+      .set({ title })
+      .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
+      .returning();
+    if (!s) throw new NotFoundException("Session not found");
+    const [{ count }] = await this.db
+      .select({ count: sqlCount() })
+      .from(messages)
+      .where(eq(messages.sessionId, sessionId));
+    return {
+      id: s.id,
+      title: s.title ?? "New session",
+      createdAt: s.createdAt,
+      messageCount: Number(count),
+    };
+  }
+
+  async remove(sessionId: string): Promise<{ id: string; deleted: true }> {
+    const userId = await this.users.getCurrentUserId();
+    const res = await this.db
+      .delete(sessions)
+      .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
+      .returning({ id: sessions.id });
+    if (!res.length) throw new NotFoundException("Session not found");
+    return { id: sessionId, deleted: true };
+  }
+}
+
+function sqlCount() {
+  return sql<number>`count(*)`.mapWith(Number);
 }

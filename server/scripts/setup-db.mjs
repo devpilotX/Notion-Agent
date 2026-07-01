@@ -1,13 +1,25 @@
 import postgres from "postgres";
 
-// Reads PG* from the environment (load with: node --env-file=../.env scripts/setup-db.mjs)
-const base = {
-  host: process.env.PGHOST ?? "localhost",
-  port: Number(process.env.PGPORT ?? 5432),
-  user: process.env.PGUSER ?? "postgres",
-  password: process.env.PGPASSWORD,
-};
-const dbName = process.env.PGDATABASE ?? "verdant";
+// First-time database setup: creates the database and enables pgvector when
+// available. Reads DATABASE_URL or the discrete PG* variables
+// (load with: node --env-file=.env server/scripts/setup-db.mjs).
+const url = process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL) : null;
+const base = url
+  ? {
+      host: url.hostname || "localhost",
+      port: Number(url.port || 5432),
+      user: decodeURIComponent(url.username || "postgres"),
+      password: decodeURIComponent(url.password ?? ""),
+    }
+  : {
+      host: process.env.PGHOST ?? "localhost",
+      port: Number(process.env.PGPORT ?? 5432),
+      user: process.env.PGUSER ?? "postgres",
+      password: process.env.PGPASSWORD,
+    };
+const dbName = url
+  ? url.pathname.replace(/^\//, "") || "verdant"
+  : process.env.PGDATABASE ?? "verdant";
 
 const admin = postgres({ ...base, database: "postgres" });
 try {
@@ -24,10 +36,14 @@ try {
 
 const db = postgres({ ...base, database: dbName });
 try {
-  await db`CREATE EXTENSION IF NOT EXISTS vector`;
+  try {
+    await db`CREATE EXTENSION IF NOT EXISTS vector`;
+    console.log("pgvector: ready");
+  } catch (e) {
+    console.log("pgvector: not available -", e.message, "(JS cosine fallback will be used)");
+  }
   const v = await db`SELECT version() as version`;
   console.log("connected:", String(v[0].version).split(" on ")[0]);
-  console.log("pgvector: ready");
 } finally {
   await db.end({ timeout: 5 });
 }

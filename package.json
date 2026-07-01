@@ -2,7 +2,7 @@
   "name": "verdant-agentforge",
   "version": "0.1.0",
   "private": true,
-  "description": "AgentForge agent UI in the Verdant nature theme — UI-only, mock data.",
+  "description": "Notion Agent frontend — the Verdant three-pane agent workbench (Next.js).",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

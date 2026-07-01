@@ -79,26 +79,37 @@ The product is two parts that talk over HTTP and Server-Sent Events:
   lowest-cost option. The resolved model is shown in the settings panel.
 - **Streaming chat with a step trace.** Replies stream token by token over SSE,
   with a live trace of each step: choosing a model, reading your documents,
-  calling a tool, and responding.
+  calling a tool, and responding. Replies render as markdown (code blocks with
+  copy buttons, lists, links, quotes), and a Stop button cancels a reply
+  mid-stream — the engine aborts the provider call, keeps the partial text, and
+  records the run as cancelled.
 - **Tool-calling loop.** Built-in web search and web fetch, gated by a Web access
   toggle and a Trusted URLs allowlist, with an Allow every URL override. Private
   and loopback addresses are always blocked.
 - **Retrieval over your files.** Upload files or whole folders (text, Markdown,
-  CSV, JSON, code, PDF, and zips). Text is extracted, chunked, embedded, and used
-  to ground answers with source citations.
+  CSV, JSON, code, PDF, and zips). Text is extracted, chunked, embedded in
+  batches (Google `gemini-embedding-001`, 768 dims), and used to ground answers
+  with source citations. With pgvector installed, similarity runs in the
+  database over an HNSW index; without it, a JS cosine fallback is used
+  automatically.
 - **Real MCP connections.** Add a Model Context Protocol server over a local
   command or a remote URL, with None, Bearer, Basic, or API-key auth. Presets for
   GitHub, Notion, Slack, Figma, Linear, Sentry, Google Drive, Gmail, Google
   Calendar, and Filesystem. Connection secrets are encrypted at rest and never
   returned by the API.
-- **Triggers.** Save scheduled, webhook, email, and file triggers to the database.
-  Background scheduling runs on BullMQ when Redis is available; without Redis the
-  triggers persist and can be fired manually.
+- **Triggers that run on their own.** Scheduled (interval or cron), webhook,
+  email, and file-watch triggers. Scheduling works out of the box with no extra
+  services: interval timers, a cron tick, and file watchers run in-process. When
+  Redis is available, interval and cron repeats move onto a durable BullMQ
+  queue instead. Webhooks get a secret URL (one click to copy) and stop firing
+  when disabled.
 - **Self-writing instructions.** Describe the agent in chat and it drafts its own
   system instructions into the settings field. You review and click Save.
 - **Voice.** Microphone capture with live transcription that appends to the
   composer, plus text-to-speech playback of replies, using the browser Web Speech
   API. Recording runs until you stop it or a ten minute cap.
+- **Session management.** Sessions list with live titles, inline rename, and
+  delete, plus resume-any-session message history.
 - **Light and deep-canopy dark themes**, a custom hand-drawn SVG icon set, and
   organic motion that respects reduced-motion settings.
 
@@ -111,7 +122,7 @@ Browser ── HTTP + SSE ──> NestJS engine ──> PostgreSQL
                               │
                               ├─ provider APIs (OpenAI, Groq, Google, ...)
                               ├─ MCP servers (stdio or HTTP)
-                              └─ Redis (optional, for trigger scheduling)
+                              └─ Redis (optional, durable trigger queue)
 ```
 
 - The frontend reads live data from the engine and falls back to static fixtures
@@ -147,13 +158,17 @@ A chat turn flows like this:
 4. Each phase is emitted as an SSE event (`run.start`, `step.start`,
    `message.delta`, `tool.call`, `tool.result`, `step.end`, `usage`, `run.done`).
 5. The final message, token counts, and cost are persisted, and the stream closes.
+6. If the client disconnects mid-run (Stop button, closed tab), the engine aborts
+   the provider call immediately, keeps the partial reply, and records the run as
+   `cancelled`.
 
 ### Data model
 
 The schema is defined with Drizzle in `server/src/db/schema.ts`. All primary keys
 are UUIDs and most rows are scoped to an agent (and through it, a user). Embedding
-columns are `vector(768)` (Google `text-embedding-004`); when pgvector is absent
-the migration stores them as `real[]` and similarity is computed in Node.
+columns are `vector(768)` (Google `gemini-embedding-001` at 768 dims); when
+pgvector is absent the migration stores them as `real[]` and similarity is
+computed in Node.
 
 | Table | Purpose | Notable columns |
 | --- | --- | --- |
@@ -187,6 +202,7 @@ components/
   brand-logos.tsx        official brand marks for the MCP presets
 lib/
   api/                   typed API client and hooks (agent, keys, models, sessions, triggers, documents, connections, usage, run)
+  markdown.tsx           dependency-free markdown renderer for chat replies
   use-voice.ts           speech-to-text and text-to-speech hooks
   mcp-presets.ts         MCP server presets
   streaming-contract.ts  client copy of the SSE event contract
@@ -295,11 +311,18 @@ When the engine runs in Docker, point the database host at `host.docker.internal
   fetch. Add hosts to Trusted URLs, or turn on Allow every URL. Fetches to private
   or loopback addresses are always blocked.
 - **Documents.** Attach files or a folder in the composer. They are indexed and
-  used to ground future answers, with source citations.
+  used to ground future answers, with source citations. Indexing needs a Google
+  key (embeddings); without one the upload returns a clear message.
 - **Connections.** Open Add connection, pick a preset or set up your own MCP
   server, connect, and its tools become available to runs.
-- **Triggers.** Add scheduled, webhook, email, or file triggers. With Redis they
-  run in the background; without it they persist and can be fired manually.
+- **Triggers.** Add scheduled (interval or cron), webhook, email, or file
+  triggers. Scheduled and file triggers run on their own — no Redis required.
+  Webhook triggers expose a secret URL (copy it from the trigger row) and can be
+  fired externally with `POST /triggers/webhook/:token`. Disabling a trigger
+  stops it immediately.
+- **Sessions.** Hover a session in the sidebar to rename or delete it.
+- **Stopping a reply.** While a reply streams, the send button becomes Stop.
+  The partial text is kept and the engine stops the provider call.
 - **Voice.** Use the mic to dictate into the composer, and Play to hear a reply.
 
 ---
@@ -386,13 +409,15 @@ no key.)
 | `GET` | `/sessions` | List chat sessions. |
 | `POST` | `/sessions` | Create a new session. |
 | `GET` | `/sessions/:id/messages` | List messages for a session. |
+| `PATCH` | `/sessions/:id` | Rename: `{ title }` (1–120 chars). |
+| `DELETE` | `/sessions/:id` | Delete a session and its messages. |
 
 ### Documents (retrieval)
 
 | Method | Path | Description |
 | --- | --- | --- |
 | `GET` | `/documents` | List indexed sources. |
-| `POST` | `/documents/upload` | `multipart/form-data`, field `files` (up to 20). Extracts, chunks, and embeds. |
+| `POST` | `/documents/upload` | `multipart/form-data`, field `files` (up to 20). Extracts, chunks, and embeds. Returns `400` with a clear message when no Google key is stored (embeddings need one). |
 | `DELETE` | `/documents/:source` | Remove a source and its chunks (`source` is URL-encoded). |
 
 ### Connections (MCP)
@@ -439,6 +464,11 @@ blank Custom option.
 `config` accepts `cron`, `intervalSec`, `path`, `token`, `address`, and `message`
 depending on the type.
 
+Scheduled triggers fire on `intervalSec` or a 5-field `cron` expression
+(`minute hour day-of-month month day-of-week`, with `*`, lists, ranges, and
+steps). Without Redis they run in-process; with Redis they run on BullMQ. The
+webhook endpoint fires only enabled triggers and returns `404` otherwise.
+
 ### Usage
 
 | Method | Path | Description |
@@ -462,6 +492,9 @@ depending on the type.
 | `usage` | `{ tokens, cost }` | Token and cost accounting. |
 | `run.done` | `{ runId, status }` | The run finished (`ok` \| `error` \| `cancelled`). |
 | `error` | `{ message }` | A run-level error. |
+
+Closing the connection mid-stream cancels the run: the engine aborts the
+provider call, saves any partial reply, and records the run as `cancelled`.
 
 Example with `curl`:
 
@@ -509,8 +542,13 @@ cd server
 npm run test
 ```
 
-For example, `src/crypto/crypto.service.spec.ts` covers the AES-256-GCM
-encrypt/decrypt round trip. Add `*.spec.ts` files alongside the code they test.
+The suite (80+ tests) covers the AES-256-GCM crypto round trip
+(`crypto.service.spec.ts`), the cron matcher (`cron.spec.ts`), the URL guard
+and private-address blocking (`tools.spec.ts`), Auto model resolution
+(`model-resolver.spec.ts`), runtime helpers like history trimming and friendly
+provider errors (`runtime-helpers.spec.ts`), and RAG chunking and cosine
+similarity (`rag-helpers.spec.ts`). Add `*.spec.ts` files alongside the code
+they test; CI runs the suite on every push.
 
 ### Verification scripts
 
@@ -547,10 +585,10 @@ All variables live in `.env` at the repo root (the engine reads it with
 | `PGUSER` | Yes* | `postgres` | Postgres user. |
 | `PGPASSWORD` | Yes* | — | Postgres password. |
 | `PGDATABASE` | Yes* | `verdant` | Postgres database name. |
-| `DATABASE_URL` | Alt | — | Single connection string; use instead of the `PG*` vars (URL-encode special characters). |
+| `DATABASE_URL` | Alt | — | Single connection string; use instead of the `PG*` vars (URL-encode special characters). Honored everywhere: the engine, retrieval, `migrate.mjs`, and every script. |
 | `MASTER_ENCRYPTION_KEY` | Yes | — | 32-byte key for AES-256-GCM secret encryption. Generate with `openssl rand -base64 32`. |
 | `AUTH_SECRET` | Recommended | — | Session/auth signing secret. Generate with `openssl rand -hex 32`. |
-| `REDIS_URL` | Optional | — | When reachable, triggers schedule on BullMQ. |
+| `REDIS_URL` | Optional | — | When reachable, interval/cron triggers move onto a durable BullMQ queue. Without it they run in-process. |
 | `LITELLM_BASE_URL` | Optional | `http://localhost:4001` | Model gateway, used by the bundled Docker stack. |
 | `OLLAMA_BASE_URL` | Optional | `http://localhost:11434` | Local Ollama server for free local models. |
 | `API_PORT` | Optional | `4000` | Engine listen port. |
@@ -565,8 +603,10 @@ All variables live in `.env` at the repo root (the engine reads it with
 - Provider keys and MCP auth tokens are encrypted at rest with AES-256-GCM. The
   master key lives only in `MASTER_ENCRYPTION_KEY`, never in the database. Secrets
   are masked in every API response and are never logged.
-- The web fetch tool blocks loopback and private network addresses even when Allow
-  every URL is on.
+- The web fetch tool blocks loopback, unspecified, RFC1918 private, link-local
+  (including the 169.254.169.254 cloud metadata address), CGNAT, IPv6
+  unique-local/link-local, and IPv4-mapped-IPv6 addresses — even when Allow
+  every URL is on. Only `http:` and `https:` are fetchable.
 - CORS is restricted to `CORS_ORIGINS` in production (localhost ports are allowed
   in development for convenience).
 - `.env` and `.kiro/` are gitignored so local secrets stay out of the repository.
@@ -587,9 +627,13 @@ All variables live in `.env` at the repo root (the engine reads it with
   `node --env-file=.env server/scripts/migrate.mjs`. For native vector indexes,
   install pgvector and `CREATE EXTENSION vector;`, then migrate again. Without
   pgvector the cosine fallback works automatically.
-- **Triggers never fire on their own.** Background scheduling needs Redis. Set
-  `REDIS_URL`; without it, triggers persist but only fire when you fire them
-  manually (or via the webhook endpoint).
+- **Triggers never fire on their own.** Check the trigger is enabled and the
+  engine is running: scheduled and file triggers run in-process with no extra
+  services. Cron expressions are evaluated once per minute in the server's local
+  time. For a durable queue that survives restarts mid-schedule, set `REDIS_URL`.
+- **A document upload returns 400.** Embeddings use Google
+  `gemini-embedding-001`, so indexing needs a Google key in the Keys card. The
+  response says exactly this.
 - **A key is rejected on add.** Keys are validated against the provider's API. A
   Kiro key (prefix `ksk_`) is intentionally rejected. Use `POST /keys/detect` to
   confirm how a key is being classified.
@@ -603,10 +647,11 @@ All variables live in `.env` at the repo root (the engine reads it with
 
 ## FAQ
 
-- **Is pgvector required?** No. It is used when present; otherwise embeddings are
-  stored in a `real[]` column and similarity is computed in Node.
-- **Do I need Redis?** Only for background trigger scheduling. Everything else
-  works without it.
+- **Is pgvector required?** No. When present, retrieval runs native cosine
+  similarity over an HNSW index in Postgres; otherwise embeddings are stored in
+  a `real[]` column and similarity is computed in Node. Both paths are automatic.
+- **Do I need Redis?** No. Scheduled, cron, and file triggers run in-process
+  without it. Redis upgrades interval/cron scheduling to a durable BullMQ queue.
 - **Where are my keys stored?** Encrypted (AES-256-GCM) in the `api_keys` table.
   The master key never leaves the environment.
 - **Can I use local models for free?** Yes. Run Ollama and set `OLLAMA_BASE_URL`,
@@ -627,7 +672,7 @@ All variables live in `.env` at the repo root (the engine reads it with
 5. Keep secrets out of commits (`.env` is gitignored) and use the existing code
    style.
 6. Open a pull request describing the change and how you verified it. CI runs
-   install, type check, and build on each PR.
+   install, type check, tests, and build for both workspaces on each PR.
 
 ---
 

@@ -4,7 +4,7 @@ import { DRIZZLE } from "../db/db.module";
 import type { Database } from "../db/drizzle";
 import { agents, agentVersions } from "../db/schema";
 
-const DEFAULT_INSTRUCTIONS =
+export const DEFAULT_INSTRUCTIONS =
   "You are Fern, a calm and helpful agent. Answer clearly and concisely, and work in small, verifiable steps.";
 
 export type AgentSettings = {
@@ -38,32 +38,41 @@ export type AgentConfigInput = {
   settings: AgentSettings;
 };
 
+/**
+ * Resolve the user's first agent, creating the default one when none exists.
+ * Shared with services (rag, connections) that cannot inject AgentsService
+ * without creating a module cycle.
+ */
+export async function getOrCreateDefaultAgent(db: Database, userId: string) {
+  const existing = await db
+    .select()
+    .from(agents)
+    .where(eq(agents.userId, userId))
+    .orderBy(agents.createdAt)
+    .limit(1);
+  if (existing.length) return existing[0];
+
+  const [created] = await db
+    .insert(agents)
+    .values({
+      userId,
+      name: "Fern",
+      greeting: "Good morning. It's quiet here. What do you want to work on?",
+      instructions: DEFAULT_INSTRUCTIONS,
+      modelMode: "auto",
+      maxSteps: 12,
+      settingsJson: DEFAULT_SETTINGS,
+    })
+    .returning();
+  return created;
+}
+
 @Injectable()
 export class AgentsService {
   constructor(@Inject(DRIZZLE) private readonly db: Database) {}
 
   async getOrCreateDefault(userId: string) {
-    const existing = await this.db
-      .select()
-      .from(agents)
-      .where(eq(agents.userId, userId))
-      .orderBy(agents.createdAt)
-      .limit(1);
-    if (existing.length) return existing[0];
-
-    const [created] = await this.db
-      .insert(agents)
-      .values({
-        userId,
-        name: "Fern",
-        greeting: "Good morning. It's quiet here. What do you want to work on?",
-        instructions: DEFAULT_INSTRUCTIONS,
-        modelMode: "auto",
-        maxSteps: 12,
-        settingsJson: DEFAULT_SETTINGS,
-      })
-      .returning();
-    return created;
+    return getOrCreateDefaultAgent(this.db, userId);
   }
 
   async get(userId: string, id: string) {

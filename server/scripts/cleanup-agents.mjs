@@ -1,13 +1,7 @@
-import postgres from "postgres";
+import { pgFromEnv } from "./db-env.mjs";
 
 const KEEP = "375e7a25-6bbb-43ef-895e-035f9a01f658"; // the original Fern with the real data
-const sql = postgres({
-  host: process.env.PGHOST,
-  port: Number(process.env.PGPORT),
-  user: process.env.PGUSER,
-  password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE,
-});
+const sql = pgFromEnv();
 
 try {
   const rows = await sql`

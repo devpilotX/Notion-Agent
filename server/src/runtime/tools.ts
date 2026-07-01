@@ -7,16 +7,30 @@ export type WebToolOptions = {
 };
 
 /** Hostnames that must never be fetched, even with "allow every URL" on. */
-function isPrivateHost(host: string): boolean {
-  const h = host.toLowerCase();
+export function isPrivateHost(host: string): boolean {
+  // URL.hostname wraps IPv6 literals in brackets; strip them for matching.
+  let h = host.toLowerCase().replace(/^\[|\]$/g, "");
   if (h === "localhost" || h.endsWith(".localhost")) return true;
-  if (h === "0.0.0.0" || h === "::1" || h === "[::1]") return true;
-  // IPv4 private / loopback / link-local ranges.
+
+  // IPv6: loopback, unspecified, unique-local (fc00::/7), link-local (fe80::/10).
+  if (h.includes(":")) {
+    if (h === "::1" || h === "::") return true;
+    if (/^f[cd]/.test(h)) return true;
+    if (/^fe[89ab]/.test(h)) return true;
+    // IPv4-mapped IPv6 (::ffff:127.0.0.1): check the embedded IPv4 part.
+    const mapped = h.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (mapped) h = mapped[1];
+    else return false;
+  }
+
+  // IPv4: loopback, unspecified, RFC1918, link-local, and CGNAT ranges.
   if (/^127\./.test(h)) return true;
+  if (/^0\./.test(h)) return true;
   if (/^10\./.test(h)) return true;
   if (/^192\.168\./.test(h)) return true;
   if (/^169\.254\./.test(h)) return true;
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h)) return true;
   return false;
 }
 

@@ -164,13 +164,17 @@ export function useSpeech() {
     mounted && typeof window !== "undefined" && "speechSynthesis" in window;
 
   const speak = React.useCallback(
-    (text: string) => {
+    (text: string, onEnd?: () => void) => {
       if (!supported || !text.trim()) return;
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
       u.lang = "en-US";
       u.rate = 1;
       u.pitch = 1;
+      if (onEnd) {
+        u.onend = onEnd;
+        u.onerror = onEnd;
+      }
       window.speechSynthesis.speak(u);
     },
     [supported],

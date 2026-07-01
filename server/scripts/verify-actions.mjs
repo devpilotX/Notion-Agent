@@ -1,4 +1,4 @@
-import postgres from "postgres";
+import { pgFromEnv } from "./db-env.mjs";
 
 const BASE = process.env.BASE ?? "http://localhost:4000";
 const J = async (r) => ({ status: r.status, body: await r.json().catch(() => null) });
@@ -12,13 +12,7 @@ const patch = (p, b) =>
   }).then(J);
 const del = (p) => fetch(`${BASE}${p}`, { method: "DELETE" }).then(J);
 
-const sql = postgres({
-  host: process.env.PGHOST,
-  port: Number(process.env.PGPORT),
-  user: process.env.PGUSER,
-  password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE,
-});
+const sql = pgFromEnv();
 
 const agentsCount = async () => (await sql`SELECT count(*)::int AS n FROM agents`)[0].n;
 const favOf = async (id) =>

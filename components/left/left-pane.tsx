@@ -96,8 +96,15 @@ export function LeftPane() {
           chunks > 0 ? `${res.length} item(s), ${chunks} chunks indexed` : "No text could be extracted",
         variant: chunks > 0 ? "success" : undefined,
       });
-    } catch {
-      toast({ title: "Upload failed", description: "Restart the engine if it is reloading.", variant: "danger" });
+    } catch (err) {
+      toast({
+        title: "Upload failed",
+        description:
+          err instanceof Error && err.message && !/^Upload failed/.test(err.message)
+            ? err.message
+            : "Check that the engine is running, then try again.",
+        variant: "danger",
+      });
     }
   };
 
@@ -204,6 +211,8 @@ export function LeftPane() {
         value={message}
         onChange={setMessage}
         onSend={handleSend}
+        onStop={chat.stop}
+        streaming={chat.status === "streaming"}
         onAttachClick={() => setMenuOpen((o) => !o)}
         attachCount={documents.length}
         attachBusy={upload.isPending}

@@ -1,4 +1,4 @@
-import postgres from "postgres";
+import { pgFromEnv } from "./db-env.mjs";
 
 const BASE = process.env.BASE ?? "http://localhost:4099";
 const j = async (r) => r.json();
@@ -23,13 +23,7 @@ await fetch(`${BASE}/agents/${a.id}/save`, {
 const after = await j(await fetch(`${BASE}/agents/current`));
 console.log("NAME_AFTER_RELOAD:", after.name);
 
-const sql = postgres({
-  host: process.env.PGHOST,
-  port: Number(process.env.PGPORT),
-  user: process.env.PGUSER,
-  password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE,
-});
+const sql = pgFromEnv();
 try {
   const [row] = await sql`SELECT name FROM agents WHERE id = ${a.id}`;
   console.log("DB_NAME:", row.name);

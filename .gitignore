@@ -32,6 +32,7 @@ server/engine.err.log
 
 # ---- local editor / agent tooling (holds local MCP tokens) ----
 .kiro/
+.mcp.json
 
 # ---- typescript / misc ----
 *.tsbuildinfo
