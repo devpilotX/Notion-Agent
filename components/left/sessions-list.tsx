@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import { motion } from "framer-motion";
-import { StaggerGroup, StaggerItem } from "@/components/motion/reveal";
 import { useSessions, useRenameSession, useDeleteSession } from "@/lib/api/sessions";
 import { useToast } from "@/components/ui/toast";
 import { Pencil, Trash, Check, Close } from "@/components/icons";
@@ -61,95 +60,102 @@ export function SessionsList({
       {sessions.length === 0 && (
         <p className="px-3 py-2 text-xs text-stone">No sessions yet.</p>
       )}
-      <StaggerGroup className="flex flex-col gap-0.5">
-        {shown.map((s) => {
+      <div className="flex flex-col gap-0.5">
+        {shown.map((s, idx) => {
           const active = activeId ? activeId === s.id : Boolean(s.active);
           const editing = editingId === s.id;
           return (
-            <StaggerItem key={s.id}>
-              <motion.div
-                whileHover={{ y: -1 }}
-                transition={{ duration: 0.2, ease: easeOrganic }}
-                className={cn(
-                  "group relative w-full rounded-[12px] transition-colors",
-                  active ? "bg-canopy/10" : "hover:bg-canopy/5",
-                )}
-              >
-                {editing ? (
-                  <div className="flex items-center gap-1 px-3 py-2">
-                    <input
-                      autoFocus
-                      value={titleDraft}
-                      onChange={(e) => setTitleDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") void commitRename();
-                        if (e.key === "Escape") setEditingId(null);
-                      }}
-                      aria-label="Session title"
-                      className="min-w-0 flex-1 rounded-[8px] border border-line bg-paper px-2 py-1 text-sm text-bark outline-none focus:border-fern"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void commitRename()}
-                      aria-label="Save title"
-                      className="grid h-6 w-6 shrink-0 place-items-center rounded-[8px] text-canopy hover:bg-canopy/10"
-                    >
-                      <Check size={13} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditingId(null)}
-                      aria-label="Cancel rename"
-                      className="grid h-6 w-6 shrink-0 place-items-center rounded-[8px] text-stone hover:bg-canopy/10"
-                    >
-                      <Close size={13} />
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => onSelect(s.id)}
-                      aria-current={active ? "true" : undefined}
-                      className="w-full px-3 py-2.5 text-left"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-medium text-bark">
-                          {s.title}
-                        </span>
-                        <span className="shrink-0 text-[11px] text-stone group-hover:opacity-0">
-                          {s.when}
-                        </span>
-                      </div>
-                      <p className="mt-0.5 truncate text-xs text-stone">{s.preview}</p>
-                    </button>
-                    {isLive && (
-                      <div className="absolute right-2 top-2 hidden items-center gap-0.5 group-hover:flex">
-                        <button
-                          type="button"
-                          onClick={() => beginRename(s.id, s.title)}
-                          aria-label={`Rename ${s.title}`}
-                          className="grid h-6 w-6 place-items-center rounded-[8px] bg-paper/80 text-stone transition-colors hover:text-canopy"
-                        >
-                          <Pencil size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void onDelete(s.id, s.title)}
-                          aria-label={`Delete ${s.title}`}
-                          className="grid h-6 w-6 place-items-center rounded-[8px] bg-paper/80 text-stone transition-colors hover:text-danger"
-                        >
-                          <Trash size={13} />
-                        </button>
-                      </div>
-                    )}
-                  </>
-                )}
-              </motion.div>
-            </StaggerItem>
+            // Each row owns its entrance animation. A shared one-shot variant
+            // container would leave rows added later (a new chat) invisible.
+            <motion.div
+              key={s.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              whileHover={{ y: -1 }}
+              transition={{
+                duration: 0.3,
+                ease: easeOrganic,
+                delay: Math.min(idx * 0.05, 0.25),
+              }}
+              className={cn(
+                "group relative w-full rounded-[12px] transition-colors",
+                active ? "bg-canopy/10" : "hover:bg-canopy/5",
+              )}
+            >
+              {editing ? (
+                <div className="flex items-center gap-1 px-3 py-2">
+                  <input
+                    autoFocus
+                    value={titleDraft}
+                    onChange={(e) => setTitleDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void commitRename();
+                      if (e.key === "Escape") setEditingId(null);
+                    }}
+                    aria-label="Session title"
+                    className="min-w-0 flex-1 rounded-[8px] border border-line bg-paper px-2 py-1 text-sm text-bark outline-none focus:border-fern"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void commitRename()}
+                    aria-label="Save title"
+                    className="grid h-6 w-6 shrink-0 place-items-center rounded-[8px] text-canopy hover:bg-canopy/10"
+                  >
+                    <Check size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingId(null)}
+                    aria-label="Cancel rename"
+                    className="grid h-6 w-6 shrink-0 place-items-center rounded-[8px] text-stone hover:bg-canopy/10"
+                  >
+                    <Close size={13} />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onSelect(s.id)}
+                    aria-current={active ? "true" : undefined}
+                    className="w-full px-3 py-2.5 text-left"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-medium text-bark">
+                        {s.title}
+                      </span>
+                      <span className="shrink-0 text-[11px] text-stone group-hover:opacity-0">
+                        {s.when}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 truncate text-xs text-stone">{s.preview}</p>
+                  </button>
+                  {isLive && (
+                    <div className="absolute right-2 top-2 hidden items-center gap-0.5 group-hover:flex">
+                      <button
+                        type="button"
+                        onClick={() => beginRename(s.id, s.title)}
+                        aria-label={`Rename ${s.title}`}
+                        className="grid h-6 w-6 place-items-center rounded-[8px] bg-paper/80 text-stone transition-colors hover:text-canopy"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void onDelete(s.id, s.title)}
+                        aria-label={`Delete ${s.title}`}
+                        className="grid h-6 w-6 place-items-center rounded-[8px] bg-paper/80 text-stone transition-colors hover:text-danger"
+                      >
+                        <Trash size={13} />
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </motion.div>
           );
         })}
-      </StaggerGroup>
+      </div>
       {sessions.length > LIMIT && (
         <div className="px-1 pt-1">
           <button
