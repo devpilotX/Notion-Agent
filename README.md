@@ -110,6 +110,9 @@ The product is two parts that talk over HTTP and Server-Sent Events:
   API. Recording runs until you stop it or a ten minute cap.
 - **Session management.** Sessions list with live titles, inline rename, and
   delete, plus resume-any-session message history.
+- **Usage you can inspect.** The settings bar shows lifetime tokens and
+  estimated cost from real run records; click it for a breakdown by last 24
+  hours, trigger-fired runs, and the past 7 days.
 - **Light and deep-canopy dark themes**, a custom hand-drawn SVG icon set, and
   organic motion that respects reduced-motion settings.
 
@@ -364,7 +367,7 @@ agent on first use.
 | `GET` | `/agents/:id/export` | Export an agent config as JSON. |
 | `PATCH` | `/agents/:id` | Update fields: `name`, `instructions`, `modelMode` (`auto`\|`manual`), `modelId`, `favorite`. |
 | `POST` | `/agents/:id/save` | Save the full config: `name`, `description?`, `instructions?`, `modelMode`, `modelId?`, `settings`. |
-| `POST` | `/agents/:id/duplicate` | Duplicate the agent. |
+| `POST` | `/agents/:id/duplicate` | Duplicate the agent (API only; the single-agent UI does not expose it). |
 | `POST` | `/agents/:id/draft-instructions` | Draft system instructions from `{ description }` (3–2000 chars). |
 | `POST` | `/agents/:id/reset` | Reset the agent to defaults. |
 | `DELETE` | `/agents/:id` | Delete the agent. |
@@ -470,11 +473,16 @@ Scheduled triggers fire on `intervalSec` or a 5-field `cron` expression
 steps). Without Redis they run in-process; with Redis they run on BullMQ. The
 webhook endpoint fires only enabled triggers and returns `404` otherwise.
 
+Every fire of a trigger is collected into one stable chat session (titled
+`Trigger · …`), so repeated fires read as a thread instead of flooding the
+sessions sidebar. Deleting that session just makes the next fire start a new
+one.
+
 ### Usage
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/usage` | Token and cost rollups. |
+| `GET` | `/usage` | Token and cost rollups: `{ tokens, cost, runs, last24h, triggered, days[] }`. Costs are estimated from a built-in per-model price table (`server/src/usage/pricing.ts`); free, local, and unknown models count as $0. |
 
 ### Streaming protocol (SSE)
 
@@ -659,7 +667,11 @@ All variables live in `.env` at the repo root (the engine reads it with
   or use a provider with a free tier (Groq, OpenRouter `:free` models). Auto
   prefers free options.
 - **Multiple agents?** The app is built around one primary agent with a
-  duplicate/save/reset workflow; the schema is multi-agent ready.
+  save/reset workflow; the schema (and a `duplicate` endpoint) are multi-agent
+  ready, but the UI shows a single agent.
+- **Are the dollar costs exact?** They are estimates from the price table in
+  `server/src/usage/pricing.ts` (edit it to match your billing). Free-tier,
+  `:free`, and local models count as $0, and unknown models are not guessed.
 
 ---
 

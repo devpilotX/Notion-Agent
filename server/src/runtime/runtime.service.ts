@@ -10,6 +10,7 @@ import { UsersService } from "../users/users.service";
 import { AgentsService } from "../agents/agents.service";
 import { resolveModel } from "./model-resolver";
 import { listModels } from "../keys/provider-validate";
+import { estimateCost } from "../usage/pricing";
 import { buildWebTools } from "./tools";
 import { RagService } from "../rag/rag.service";
 import { ConnectionsService } from "../connections/connections.service";
@@ -262,17 +263,27 @@ export class RuntimeService {
       };
       const tokens =
         usage?.totalTokens ?? (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0);
+      // Estimated cost from the pricing table; free/local/unknown models are 0.
+      const cost = estimateCost(
+        resolved.label,
+        usage?.inputTokens ?? 0,
+        usage?.outputTokens ?? 0,
+      );
       send({ type: "step.end", stepId: respStep });
-      send({ type: "usage", tokens: tokens || 0, cost: 0 });
-      await this.db
-        .insert(messages)
-        .values({ sessionId, role: "assistant", content: full, tokens: tokens || 0 });
+      send({ type: "usage", tokens: tokens || 0, cost });
+      await this.db.insert(messages).values({
+        sessionId,
+        role: "assistant",
+        content: full,
+        tokens: tokens || 0,
+        cost,
+      });
       await this.db.insert(runs).values({
         agentId: agent.id,
         triggerId: input.triggerId ?? null,
         status: "ok",
         tokens: tokens || 0,
-        cost: 0,
+        cost,
         durationMs: Date.now() - startedAt,
       });
       send({ type: "run.done", runId, status: "ok" });

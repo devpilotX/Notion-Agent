@@ -31,10 +31,16 @@ export type SessionMessageDTO = {
   createdAt: string;
 };
 
-export type UsageDTO = {
+export type UsageSlice = {
   tokens: number;
   cost: number;
   runs: number;
+};
+
+export type UsageDTO = UsageSlice & {
+  last24h: UsageSlice;
+  triggered: UsageSlice;
+  days: Array<UsageSlice & { day: string }>;
 };
 
 export type Provider =

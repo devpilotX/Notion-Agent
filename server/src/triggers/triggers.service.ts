@@ -12,7 +12,7 @@ import { randomBytes } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { DRIZZLE } from "../db/db.module";
 import type { Database } from "../db/drizzle";
-import { triggers } from "../db/schema";
+import { sessions, triggers } from "../db/schema";
 import { UsersService } from "../users/users.service";
 import { AgentsService } from "../agents/agents.service";
 import { RuntimeService } from "../runtime/runtime.service";
@@ -27,6 +27,8 @@ export type TriggerConfig = {
   token?: string;
   address?: string;
   message?: string;
+  /** Chat session that collects this trigger's runs (set on first fire). */
+  sessionId?: string;
 };
 
 export type TriggerView = {
@@ -189,10 +191,13 @@ export class TriggersService implements OnModuleInit, OnModuleDestroy {
     const message = overrideMessage || view.config.message || DEFAULT_MESSAGE;
     const userId = await this.users.getCurrentUserId();
     const agent = await this.agents.getOrCreateDefault(userId);
+    // Every fire of a trigger lands in one stable session, so repeated fires
+    // read as a thread instead of flooding the sidebar with new sessions.
+    const sessionId = await this.triggerSession(view, agent.id, userId);
     let reply = "";
     let runId = "";
     await this.runtime.run(
-      { agentId: agent.id, message, triggerId: view.id },
+      { agentId: agent.id, message, sessionId, triggerId: view.id },
       (e) => {
         if (e.type === "run.start") runId = e.runId;
         if (e.type === "message.delta") reply += e.text;
@@ -200,6 +205,35 @@ export class TriggersService implements OnModuleInit, OnModuleDestroy {
     );
     this.log.log(`fired trigger ${view.id} (${view.type}) -> run ${runId}`);
     return { runId, reply };
+  }
+
+  /** Resolve (or create) the trigger's collector session and remember it. */
+  private async triggerSession(
+    view: TriggerView,
+    agentId: string,
+    userId: string,
+  ): Promise<string> {
+    const existing = view.config.sessionId;
+    if (existing) {
+      const [row] = await this.db
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(eq(sessions.id, existing))
+        .limit(1);
+      if (row) return row.id;
+      // The user deleted the session; fall through and create a fresh one.
+    }
+    const label = view.config.message?.slice(0, 40) || view.type;
+    const [created] = await this.db
+      .insert(sessions)
+      .values({ agentId, userId, title: `Trigger · ${label}` })
+      .returning({ id: sessions.id });
+    await this.db
+      .update(triggers)
+      .set({ configJson: { ...view.config, sessionId: created.id } })
+      .where(eq(triggers.id, view.id));
+    view.config.sessionId = created.id;
+    return created.id;
   }
 
   // ---------------------------------------------------------------- scheduling

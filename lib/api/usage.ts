@@ -18,3 +18,10 @@ export function formatTokens(n: number): string {
   if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10000 ? 1 : 0)}k`;
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
+
+/** Estimated cost for display: exact-ish small values, 2 decimals otherwise. */
+export function formatCost(usd: number): string {
+  if (usd <= 0) return "$0.00";
+  if (usd < 0.01) return "<$0.01";
+  return `$${usd.toFixed(2)}`;
+}

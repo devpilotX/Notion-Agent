@@ -13,18 +13,16 @@ import {
   Share,
   Star,
   More,
-  Plus,
   Rotate,
   Trash,
   Seed,
   Sun,
   Moon,
 } from "@/components/icons";
-import { useUsage, formatTokens } from "@/lib/api/usage";
+import { useUsage, formatTokens, formatCost } from "@/lib/api/usage";
 import {
   useAgentConfig,
   useToggleFavorite,
-  useDuplicateAgent,
   useResetAgent,
   useDeleteAgent,
   fetchAgentExport,
@@ -41,7 +39,6 @@ export function SettingsTopbar({ onCollapse }: { onCollapse?: () => void }) {
   const { usage, isLive } = useUsage();
   const { data: agent } = useAgentConfig();
   const favorite = useToggleFavorite();
-  const duplicate = useDuplicateAgent();
   const reset = useResetAgent();
   const remove = useDeleteAgent();
   const { theme, setTheme } = useTheme();
@@ -50,13 +47,14 @@ export function SettingsTopbar({ onCollapse }: { onCollapse?: () => void }) {
   const [shareOpen, setShareOpen] = React.useState(false);
   const [shareText, setShareText] = React.useState("");
   const [prefsOpen, setPrefsOpen] = React.useState(false);
+  const [usageOpen, setUsageOpen] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState(false);
 
   const isFavorite = Boolean(agent?.favorite);
 
   const usageText =
     isLive && usage
-      ? `${formatTokens(usage.tokens)} tokens${usage.cost > 0 ? ` · $${usage.cost.toFixed(2)}` : ""}`
+      ? `${formatTokens(usage.tokens)} tokens${usage.cost > 0 ? ` · ${formatCost(usage.cost)}` : ""}`
       : "usage offline";
 
   const onShare = async () => {
@@ -91,14 +89,6 @@ export function SettingsTopbar({ onCollapse }: { onCollapse?: () => void }) {
     );
   };
 
-  const onDuplicate = () => {
-    if (!agent?.id) return;
-    duplicate.mutate(agent.id, {
-      onSuccess: (d) => toast({ title: "Agent duplicated", description: d.name }),
-      onError: () => toast({ title: "Could not duplicate", variant: "danger" }),
-    });
-  };
-
   const onReset = () => {
     if (!agent?.id) return;
     reset.mutate(agent.id, {
@@ -118,8 +108,9 @@ export function SettingsTopbar({ onCollapse }: { onCollapse?: () => void }) {
     });
   };
 
+  // "Duplicate agent" was removed from this menu: the UI is single-agent, so
+  // a database copy is unreachable. Share/export covers the backup use case.
   const moreItems: MenuItem[] = [
-    { id: "duplicate", label: "Duplicate agent", icon: <Plus size={16} />, onSelect: onDuplicate },
     { id: "reset", label: "Reset to defaults", icon: <Rotate size={16} />, onSelect: onReset },
     {
       id: "delete",
@@ -152,13 +143,15 @@ export function SettingsTopbar({ onCollapse }: { onCollapse?: () => void }) {
       </div>
 
       <div className="flex items-center gap-1">
-        <span
-          title="Total tokens used by this agent"
-          className="mr-1 hidden items-center gap-1.5 rounded-full border border-line bg-paper px-2.5 py-1 text-xs text-stone sm:inline-flex"
+        <button
+          type="button"
+          onClick={() => setUsageOpen(true)}
+          title="Tokens and estimated cost — click for the breakdown"
+          className="mr-1 hidden items-center gap-1.5 rounded-full border border-line bg-paper px-2.5 py-1 text-xs text-stone transition-colors hover:border-moss hover:text-canopy sm:inline-flex"
         >
           <Seed size={13} className="text-moss" />
           {usageText}
-        </span>
+        </button>
         <Tooltip label="Preferences" side="bottom">
           <IconButton aria-label="Preferences" onClick={() => setPrefsOpen(true)}>
             <Sliders size={18} />
@@ -266,6 +259,65 @@ export function SettingsTopbar({ onCollapse }: { onCollapse?: () => void }) {
             </div>
           </div>
         </div>
+      </Modal>
+
+      {/* Usage breakdown */}
+      <Modal
+        open={usageOpen}
+        onClose={() => setUsageOpen(false)}
+        title="Usage"
+        description="Tokens and estimated cost for this agent, from real run records."
+        footer={<Button onClick={() => setUsageOpen(false)}>Done</Button>}
+      >
+        {usage ? (
+          <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { label: "All time", slice: usage },
+                { label: "Last 24h", slice: usage.last24h },
+                { label: "From triggers", slice: usage.triggered },
+              ].map(({ label, slice }) => (
+                <div
+                  key={label}
+                  className="rounded-[12px] border border-line bg-mist/40 px-3 py-2.5"
+                >
+                  <p className="text-[11px] uppercase tracking-wide text-stone/70">{label}</p>
+                  <p className="mt-1 font-semibold text-bark">{formatTokens(slice.tokens)}</p>
+                  <p className="text-xs text-stone">
+                    {slice.runs} run{slice.runs === 1 ? "" : "s"} · {formatCost(slice.cost)}
+                  </p>
+                </div>
+              ))}
+            </div>
+            {usage.days.length > 0 && (
+              <div>
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-stone/70">
+                  Last 7 days
+                </p>
+                <div className="flex flex-col gap-1">
+                  {usage.days.map((d) => (
+                    <div
+                      key={d.day}
+                      className="flex items-center justify-between rounded-[10px] border border-line bg-mist/30 px-3 py-1.5 text-xs"
+                    >
+                      <span className="text-bark">{d.day}</span>
+                      <span className="text-stone">
+                        {formatTokens(d.tokens)} tokens · {d.runs} run{d.runs === 1 ? "" : "s"} ·{" "}
+                        {formatCost(d.cost)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <p className="text-xs text-stone">
+              Costs are estimates from a built-in price table; free and local models count as
+              $0. Cancelled runs record no tokens.
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-stone">Usage is unavailable while the engine is offline.</p>
+        )}
       </Modal>
 
       {/* Confirm delete */}
