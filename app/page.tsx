@@ -5,6 +5,7 @@ import { LeftPane } from "@/components/left/left-pane";
 import { SessionsSidebar } from "@/components/left/sessions-sidebar";
 import { RightPane } from "@/components/right/right-pane";
 import { AgentConfigProvider } from "@/components/right/agent-config-context";
+import { AuthGate } from "@/components/auth/auth-gate";
 import { ChatProvider } from "@/components/chat/chat-context";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -17,6 +18,7 @@ export default function Page() {
 
   return (
     <main className="relative z-10 lg:h-dvh">
+      <AuthGate>
       <AgentConfigProvider>
         <ChatProvider>
           <div className="mx-auto flex h-full max-w-[1600px] flex-col lg:flex-row">
@@ -89,6 +91,7 @@ export default function Page() {
           </Button>
         </Tooltip>
       </div>
+      </AuthGate>
     </main>
   );
 }

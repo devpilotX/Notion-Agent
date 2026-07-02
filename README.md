@@ -19,9 +19,10 @@ The product is two parts that talk over HTTP and Server-Sent Events:
 - A NestJS engine: provider keys, model routing, the streaming run loop, tools,
   retrieval, triggers, and MCP connections, backed by PostgreSQL.
 
-> **Single-user, self-hosted.** This build runs in a single local-user mode with no
-> login. Add authentication before exposing the engine on a network. See
-> [Security](#security).
+> **Self-hosted, local-first.** By default the app runs in a single local-user
+> mode with no login. To deploy it on a network, set `AUTH_ENABLED=true` and it
+> becomes a multi-user app with sign-in — the first account created inherits
+> everything you set up locally. See [Accounts and auth](#accounts-and-auth).
 
 ---
 
@@ -59,6 +60,7 @@ The product is two parts that talk over HTTP and Server-Sent Events:
   - [Verification scripts](#verification-scripts)
 - [Configuration reference](#configuration-reference)
 - [Security](#security)
+  - [Accounts and auth](#accounts-and-auth)
 - [Troubleshooting](#troubleshooting)
 - [FAQ](#faq)
 - [Contributing](#contributing)
@@ -113,6 +115,10 @@ The product is two parts that talk over HTTP and Server-Sent Events:
 - **Usage you can inspect.** The settings bar shows lifetime tokens and
   estimated cost from real run records; click it for a breakdown by last 24
   hours, trigger-fired runs, and the past 7 days.
+- **Opt-in accounts.** Flip `AUTH_ENABLED=true` to require sign-in: scrypt
+  password hashing, signed httpOnly session cookies, a sign-in/sign-up screen,
+  and a Profile card (name, change password, sign out). Zero new dependencies,
+  and local single-user mode stays the default.
 - **Light and deep-canopy dark themes**, a custom hand-drawn SVG icon set, and
   organic motion that respects reduced-motion settings.
 
@@ -355,6 +361,24 @@ All paths below are relative to the engine base URL.
 | Method | Path | Description |
 | --- | --- | --- |
 | `GET` | `/health` | Liveness probe. Returns `{ status, service, time }`. |
+
+### Auth
+
+Only active when `AUTH_ENABLED=true`; otherwise `GET /auth/me` reports
+`{ authRequired: false }` and every route is open (local mode).
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/auth/me` | `{ authRequired, user }` — who is signed in, if anyone. Public. |
+| `POST` | `/auth/signup` | Create an account: `{ email, password (8+), name? }`. Sets the session cookie. The first signup claims the local demo user and inherits its data. |
+| `POST` | `/auth/signin` | `{ email, password }`. Sets the session cookie. Briefly locks after 5 failed attempts. |
+| `POST` | `/auth/signout` | Clears the session cookie. |
+| `PATCH` | `/auth/me` | Update `{ name }`. Requires a session. |
+| `POST` | `/auth/change-password` | `{ current, next }`. Requires a session. |
+
+With auth on, every other endpoint requires the session cookie except
+`/health` and `/triggers/webhook/:token` (webhooks carry their own secret and
+run as the trigger's owner).
 
 ### Agents
 
@@ -602,6 +626,8 @@ All variables live in `.env` at the repo root (the engine reads it with
 | `OLLAMA_BASE_URL` | Optional | `http://localhost:11434` | Local Ollama server for free local models. |
 | `API_PORT` | Optional | `4000` | Engine listen port. |
 | `CORS_ORIGINS` | Optional | `http://localhost:3000` | Comma-separated origins allowed to call the engine. |
+| `AUTH_ENABLED` | Optional | `false` | Require accounts and sign-in. Needs a real `AUTH_SECRET`. |
+| `AUTH_COOKIE_SECURE` | Optional | `false` | Set `true` behind HTTPS so the session cookie is `Secure`. |
 
 \* Provide either the discrete `PG*` variables **or** a single `DATABASE_URL`.
 
@@ -618,10 +644,34 @@ All variables live in `.env` at the repo root (the engine reads it with
   every URL is on. Only `http:` and `https:` are fetchable.
 - CORS is restricted to `CORS_ORIGINS` in production (localhost ports are allowed
   in development for convenience).
-- `.env` and `.kiro/` are gitignored so local secrets stay out of the repository.
-- **No authentication ships in this build.** It runs in a single local-user mode.
-  Add authentication and lock down `CORS_ORIGINS` before exposing the engine on a
-  network or the public internet.
+- `.env`, `.mcp.json`, and `.kiro/` are gitignored so local secrets stay out of
+  the repository.
+
+### Accounts and auth
+
+Local mode (the default) has no login: the engine trusts whoever can reach it,
+which is fine on your own machine and wrong anywhere else. Before exposing the
+engine on a network:
+
+1. Set a real `AUTH_SECRET` (`openssl rand -hex 32`) and `AUTH_ENABLED=true`.
+2. Restart the engine and open the app — it now shows a sign-in screen.
+3. Sign up. **The first account claims the local demo user**, so your agent,
+   keys, sessions, documents, and triggers carry over. Later signups get their
+   own empty workspace (the schema is per-user).
+
+How it works: passwords are hashed with scrypt (Node's crypto, no new
+dependencies) and sessions are HMAC-signed httpOnly cookies (30-day expiry)
+using `AUTH_SECRET`. Sign-out clears the cookie; because sessions are
+stateless, rotating `AUTH_SECRET` is the way to force-invalidate every
+session. Sign-in briefly locks an email after 5 failed attempts.
+
+Deployment notes:
+
+- Serve the frontend and engine behind **one domain over HTTPS** (a reverse
+  proxy routing `/` to Next and the API paths to the engine is simplest), set
+  `AUTH_COOKIE_SECURE=true`, and put your exact origin in `CORS_ORIGINS`.
+- Webhook URLs keep working without a session — they authenticate with their
+  own secret token and run as the trigger's owner.
 
 ---
 
@@ -669,6 +719,8 @@ All variables live in `.env` at the repo root (the engine reads it with
 - **Multiple agents?** The app is built around one primary agent with a
   save/reset workflow; the schema (and a `duplicate` endpoint) are multi-agent
   ready, but the UI shows a single agent.
+- **Can several people use one deployment?** Yes — with `AUTH_ENABLED=true`
+  each account gets its own agent, keys, sessions, documents, and triggers.
 - **Are the dollar costs exact?** They are estimates from the price table in
   `server/src/usage/pricing.ts` (edit it to match your billing). Free-tier,
   `:free`, and local models count as $0, and unknown models are not guessed.

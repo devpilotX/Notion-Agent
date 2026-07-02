@@ -51,6 +51,8 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434
       MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY}
       AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
       API_PORT: "4000"
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
     extra_hosts:

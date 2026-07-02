@@ -12,7 +12,7 @@ import { randomBytes } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { DRIZZLE } from "../db/db.module";
 import type { Database } from "../db/drizzle";
-import { sessions, triggers } from "../db/schema";
+import { agents, sessions, triggers } from "../db/schema";
 import { UsersService } from "../users/users.service";
 import { AgentsService } from "../agents/agents.service";
 import { RuntimeService } from "../runtime/runtime.service";
@@ -33,6 +33,7 @@ export type TriggerConfig = {
 
 export type TriggerView = {
   id: string;
+  agentId: string;
   type: TriggerType;
   enabled: boolean;
   config: TriggerConfig;
@@ -105,6 +106,7 @@ export class TriggersService implements OnModuleInit, OnModuleDestroy {
   private toView(r: typeof triggers.$inferSelect): TriggerView {
     return {
       id: r.id,
+      agentId: r.agentId,
       type: r.type as TriggerType,
       enabled: r.enabled,
       config: (r.configJson as TriggerConfig) ?? {},
@@ -189,22 +191,31 @@ export class TriggersService implements OnModuleInit, OnModuleDestroy {
 
   private async fireView(view: TriggerView, overrideMessage?: string) {
     const message = overrideMessage || view.config.message || DEFAULT_MESSAGE;
-    const userId = await this.users.getCurrentUserId();
-    const agent = await this.agents.getOrCreateDefault(userId);
-    // Every fire of a trigger lands in one stable session, so repeated fires
-    // read as a thread instead of flooding the sidebar with new sessions.
-    const sessionId = await this.triggerSession(view, agent.id, userId);
-    let reply = "";
-    let runId = "";
-    await this.runtime.run(
-      { agentId: agent.id, message, sessionId, triggerId: view.id },
-      (e) => {
-        if (e.type === "run.start") runId = e.runId;
-        if (e.type === "message.delta") reply += e.text;
-      },
-    );
-    this.log.log(`fired trigger ${view.id} (${view.type}) -> run ${runId}`);
-    return { runId, reply };
+    // Fires can be headless (scheduler, webhook), so the acting user is the
+    // trigger's agent owner — never whatever user context happens to exist.
+    const [agent] = await this.db
+      .select()
+      .from(agents)
+      .where(eq(agents.id, view.agentId))
+      .limit(1);
+    if (!agent) throw new NotFoundException("Agent for this trigger not found");
+
+    return this.users.runAs(agent.userId, async () => {
+      // Every fire of a trigger lands in one stable session, so repeated
+      // fires read as a thread instead of flooding the sidebar.
+      const sessionId = await this.triggerSession(view, agent.id, agent.userId);
+      let reply = "";
+      let runId = "";
+      await this.runtime.run(
+        { agentId: agent.id, message, sessionId, triggerId: view.id },
+        (e) => {
+          if (e.type === "run.start") runId = e.runId;
+          if (e.type === "message.delta") reply += e.text;
+        },
+      );
+      this.log.log(`fired trigger ${view.id} (${view.type}) -> run ${runId}`);
+      return { runId, reply };
+    });
   }
 
   /** Resolve (or create) the trigger's collector session and remember it. */

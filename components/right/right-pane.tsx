@@ -6,6 +6,7 @@ import { InstructionsSection } from "./instructions-section";
 import { ToolsSection } from "./tools-section";
 import { KeysSection } from "./keys-section";
 import { AdvancedSection } from "./advanced-section";
+import { ProfileSection } from "./profile-section";
 import { HelpSection } from "./help-section";
 
 export function RightPane({ onCollapse }: { onCollapse?: () => void }) {
@@ -19,6 +20,7 @@ export function RightPane({ onCollapse }: { onCollapse?: () => void }) {
           <ToolsSection delay={0.04} />
           <KeysSection delay={0.04} />
           <AdvancedSection delay={0.04} />
+          <ProfileSection delay={0.04} />
           <HelpSection delay={0.04} />
         </div>
       </div>

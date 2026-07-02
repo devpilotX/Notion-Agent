@@ -31,7 +31,20 @@ async function request<T>(
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw new ApiError(res.status, `${method} ${path} failed (${res.status})`);
+  if (!res.ok) {
+    // Prefer the engine's message (validation issues, auth errors) over a code.
+    const body = (await res.json().catch(() => null)) as
+      | { message?: string | string[] }
+      | null;
+    const message = Array.isArray(body?.message)
+      ? body.message.join(", ")
+      : body?.message || `${method} ${path} failed (${res.status})`;
+    if (res.status === 401 && typeof window !== "undefined") {
+      // Session missing or expired: let the auth gate re-check.
+      window.dispatchEvent(new CustomEvent("verdant:unauthorized"));
+    }
+    throw new ApiError(res.status, message);
+  }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }

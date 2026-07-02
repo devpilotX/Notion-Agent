@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { DbModule } from "./db/db.module";
+import { AuthModule } from "./auth/auth.module";
 import { CryptoModule } from "./crypto/crypto.module";
 import { KeysModule } from "./keys/keys.module";
 import { ModelsModule } from "./models/models.module";
@@ -20,6 +21,7 @@ import { HealthController } from "./health/health.controller";
       envFilePath: [".env", "../.env"],
     }),
     DbModule,
+    AuthModule,
     CryptoModule,
     KeysModule,
     ModelsModule,
